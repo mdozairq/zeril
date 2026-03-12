@@ -1,0 +1,14 @@
+name: Pull Request validation
+
+on: [pull_request]
+
+
+jobs:
+  payroll-contracts-ci:
+    name: Run payroll-contracts validation
+    uses: ./.github/workflows/payroll-contracts-ci.yaml
+
+  payroll-frontend-ci:
+    name: Run payroll-frontend validation
+    uses: ./.github/workflows/payroll-frontend-ci.yaml
+

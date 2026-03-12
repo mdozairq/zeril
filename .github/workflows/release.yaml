@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '.vscode/**'
+      - '.idea/**'
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  payroll-contracts-validate:
+    name: Run payroll-contracts release
+    secrets: inherit
+    uses: ./.github/workflows/payroll-contracts-ci.yaml
+
+  payroll-contracts-release:
+    name: Run payroll-contracts release
+    secrets: inherit
+    uses: ./.github/workflows/payroll-contracts-cd.yaml
+    needs: payroll-contracts-validate
+
+  payroll-frontend-validate:
+    name: Run payroll-frontend release
+    secrets: inherit
+    uses: ./.github/workflows/payroll-frontend-ci.yaml
+
+  payroll-frontend-release:
+    name: Run payroll-frontend release
+    secrets: inherit
+    uses: ./.github/workflows/payroll-frontend-cd.yaml
+    needs: payroll-frontend-validate
