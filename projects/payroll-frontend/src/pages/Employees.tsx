@@ -1,0 +1,69 @@
+import { useSnackbar } from 'notistack'
+import AddEmployeeForm from '../components/Employee/AddEmployeeForm'
+import EmployeeList from '../components/Employee/EmployeeList'
+import { Employee } from '../hooks/useEmployees'
+
+interface EmployeesProps {
+  employees: Employee[]
+  loading: boolean
+  onAddEmployee: (address: string, salary: bigint) => Promise<void>
+  onRemoveEmployee: (address: string) => Promise<void>
+  onUpdateSalary: (address: string, newSalary: bigint) => Promise<void>
+  onRefresh: () => void
+}
+
+const Employees = ({ employees, loading, onAddEmployee, onRemoveEmployee, onUpdateSalary, onRefresh }: EmployeesProps) => {
+  const { enqueueSnackbar } = useSnackbar()
+
+  const handleAdd = async (address: string, salary: bigint) => {
+    try {
+      await onAddEmployee(address, salary)
+      enqueueSnackbar('Employee added successfully', { variant: 'success' })
+      onRefresh()
+    } catch (e: unknown) {
+      enqueueSnackbar(`Failed to add employee: ${e instanceof Error ? e.message : 'Unknown error'}`, { variant: 'error' })
+    }
+  }
+
+  const handleRemove = async (address: string) => {
+    try {
+      await onRemoveEmployee(address)
+      enqueueSnackbar('Employee removed', { variant: 'success' })
+      onRefresh()
+    } catch (e: unknown) {
+      enqueueSnackbar(`Failed to remove employee: ${e instanceof Error ? e.message : 'Unknown error'}`, { variant: 'error' })
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold">Employees</h2>
+        <button className="btn btn-ghost btn-sm" onClick={onRefresh} disabled={loading}>
+          Refresh
+        </button>
+      </div>
+
+      <div className="card bg-base-100 shadow">
+        <div className="card-body">
+          <h3 className="card-title text-sm">Add New Employee</h3>
+          <AddEmployeeForm onAdd={handleAdd} loading={loading} />
+        </div>
+      </div>
+
+      <div className="card bg-base-100 shadow">
+        <div className="card-body">
+          <h3 className="card-title text-sm">Employee Registry ({employees.length})</h3>
+          <EmployeeList
+            employees={employees}
+            onRemove={handleRemove}
+            onUpdateSalary={onUpdateSalary}
+            loading={loading}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default Employees
