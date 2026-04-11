@@ -4,28 +4,40 @@ import { AlgorandClient } from '@algorandfoundation/algokit-utils'
 import { EmployerFactory, EmployerClient } from '../contracts/Employer'
 import { getAlgodConfigFromViteEnvironment, getIndexerConfigFromViteEnvironment } from '../utils/network/getAlgoClientConfigs'
 
-const STORAGE_KEY = 'payroll_contract'
+const OLD_STORAGE_KEYS = ['payroll_contract', 'payroll_contract_v2']
 
 interface PersistedState {
   appId: string
   usdcAssetId: string
 }
 
-function saveToStorage(appId: bigint, usdcAssetId: bigint) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+function storageKey(walletAddress: string) {
+  return `zeril_contract_${walletAddress.toLowerCase()}`
+}
+
+function saveToStorage(walletAddress: string, appId: bigint, usdcAssetId: bigint) {
+  localStorage.setItem(storageKey(walletAddress), JSON.stringify({
     appId: appId.toString(),
     usdcAssetId: usdcAssetId.toString(),
   }))
 }
 
-function loadFromStorage(): PersistedState | null {
+function loadFromStorage(walletAddress: string): PersistedState | null {
+  // Clean up old global keys (not per-wallet)
+  for (const key of OLD_STORAGE_KEYS) {
+    localStorage.removeItem(key)
+  }
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(storageKey(walletAddress))
     if (!raw) return null
     return JSON.parse(raw)
   } catch {
     return null
   }
+}
+
+function clearStorage(walletAddress: string) {
+  localStorage.removeItem(storageKey(walletAddress))
 }
 
 export interface PayrollContractState {
@@ -98,8 +110,8 @@ export function usePayrollContract() {
       try {
         const algorand = getAlgorand()
 
-        // First try localStorage for a previously connected contract
-        const persisted = loadFromStorage()
+        // Try localStorage for a previously connected contract
+        const persisted = loadFromStorage(activeAddress)
         if (persisted) {
           try {
             const appId = BigInt(persisted.appId)
@@ -108,53 +120,28 @@ export function usePayrollContract() {
               defaultSender: activeAddress,
             })
             const status = await checkContractStatus(client)
-            const usdcAssetId = status.usdcAssetId > 0n ? status.usdcAssetId : BigInt(persisted.usdcAssetId || '0')
 
-            setState({
-              appId,
-              appAddress: client.appAddress.toString(),
-              client,
-              isInitialized: status.initialized,
-              isBootstrapped: status.bootstrapped,
-              usdcAssetId,
-              employerAddress: status.employerAddress,
-            })
-            return
-          } catch {
-            // Persisted app no longer valid, try factory lookup
-          }
-        }
-
-        // Fall back to factory lookup by creator + app name
-        try {
-          const factory = algorand.client.getTypedAppFactory(EmployerFactory, {
-            defaultSender: activeAddress,
-          })
-          // deploy is idempotent — if an app already exists for this creator+name
-          // it returns it with operationPerformed === 'nothing'
-          const { appClient, result } = await factory.deploy({
-            onUpdate: 'append',
-            onSchemaBreak: 'append',
-          })
-
-          // Only auto-connect if it found an existing app (not a fresh create)
-          if (result.operationPerformed === 'nothing') {
-            const status = await checkContractStatus(appClient)
-            if (status.usdcAssetId > 0n) {
-              saveToStorage(appClient.appId, status.usdcAssetId)
+            // If the contract has valid state, use it
+            if (status.initialized || status.usdcAssetId > 0n) {
+              const usdcAssetId = status.usdcAssetId > 0n ? status.usdcAssetId : BigInt(persisted.usdcAssetId || '0')
+              setState({
+                appId,
+                appAddress: client.appAddress.toString(),
+                client,
+                isInitialized: status.initialized,
+                isBootstrapped: status.bootstrapped,
+                usdcAssetId,
+                employerAddress: status.employerAddress,
+              })
+              return
             }
-            setState({
-              appId: appClient.appId,
-              appAddress: appClient.appAddress.toString(),
-              client: appClient,
-              isInitialized: status.initialized,
-              isBootstrapped: status.bootstrapped,
-              usdcAssetId: status.usdcAssetId,
-              employerAddress: status.employerAddress,
-            })
+
+            // Contract exists but has no state — likely stale/old version, clear it
+            clearStorage(activeAddress)
+          } catch {
+            // Persisted app no longer valid, clear stale entry
+            clearStorage(activeAddress)
           }
-        } catch {
-          // No existing contract found — user needs to deploy
         }
       } finally {
         setLoading(false)
@@ -189,18 +176,18 @@ export function usePayrollContract() {
         defaultSender: activeAddress,
       })
 
-      const { appClient, result } = await factory.deploy({
-        onUpdate: 'append',
-        onSchemaBreak: 'append',
+      // Always create a fresh app — avoids picking up stale old contracts
+      const { appClient } = await factory.send.create.bare()
+
+      // Fund the app account for MBR (asset opt-in + boxes)
+      await algorand.send.payment({
+        amount: (1).algo(),
+        sender: activeAddress,
+        receiver: appClient.appAddress,
       })
 
-      if (['create', 'replace'].includes(result.operationPerformed)) {
-        await algorand.send.payment({
-          amount: (1).algo(),
-          sender: activeAddress,
-          receiver: appClient.appAddress,
-        })
-      }
+      // Persist new app for this wallet
+      saveToStorage(activeAddress, appClient.appId, 0n)
 
       setState({
         appId: appClient.appId,
@@ -228,9 +215,8 @@ export function usePayrollContract() {
 
       const status = await checkContractStatus(client)
 
-      if (status.usdcAssetId > 0n) {
-        saveToStorage(appId, status.usdcAssetId)
-      }
+      // Always save so we reconnect on refresh
+      saveToStorage(activeAddress, appId, status.usdcAssetId)
 
       setState({
         appId,
@@ -254,7 +240,7 @@ export function usePayrollContract() {
         await state.client.send.initialize({
           args: { usdcAsset: usdcAssetId },
         })
-        saveToStorage(state.appId!, usdcAssetId)
+        saveToStorage(activeAddress, state.appId!, usdcAssetId)
         setState((prev) => ({ ...prev, isInitialized: true, usdcAssetId, employerAddress: activeAddress }))
       } finally {
         setLoading(false)
@@ -343,12 +329,12 @@ export function usePayrollContract() {
   )
 
   const payEmployee = useCallback(
-    async (employeeAddress: string) => {
+    async (employeeAddress: string, algoRate: bigint = 0n) => {
       if (!state.client || !activeAddress) throw new Error('Contract not deployed')
       setLoading(true)
       try {
         await state.client.send.payEmployee({
-          args: { employee: employeeAddress },
+          args: { employee: employeeAddress, algoRate },
           populateAppCallResources: true,
           maxFee: (3000).microAlgo(),
           coverAppCallInnerTransactionFees: true,
@@ -358,6 +344,44 @@ export function usePayrollContract() {
       }
     },
     [state.client, activeAddress],
+  )
+
+  const setAllocation = useCallback(
+    async (employeeAddress: string, usdcPct: bigint) => {
+      if (!state.client || !activeAddress) throw new Error('Contract not deployed')
+      setLoading(true)
+      try {
+        await state.client.send.setAllocation({
+          args: { employee: employeeAddress, usdcPct },
+          populateAppCallResources: true,
+        })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [state.client, activeAddress],
+  )
+
+  const setAlgoReceiver = useCallback(
+    async (employeeAddress: string, receiver: string) => {
+      if (!state.client || !activeAddress) throw new Error('Contract not deployed')
+      setLoading(true)
+      try {
+        const algorand = getAlgorand()
+        const mbrPayTxn = await algorand.createTransaction.payment({
+          sender: activeAddress,
+          receiver: state.client.appAddress,
+          amount: (0.1).algo(),
+        })
+        await state.client.send.setAlgoReceiver({
+          args: { employee: employeeAddress, receiver, mbrPay: mbrPayTxn },
+          populateAppCallResources: true,
+        })
+      } finally {
+        setLoading(false)
+      }
+    },
+    [state.client, activeAddress, getAlgorand],
   )
 
   // Admin check: either contract is not yet initialized (deployer is setting up),
@@ -376,6 +400,8 @@ export function usePayrollContract() {
     removeEmployee,
     updateSalary,
     payEmployee,
+    setAllocation,
+    setAlgoReceiver,
     getAlgorand,
   }
 }

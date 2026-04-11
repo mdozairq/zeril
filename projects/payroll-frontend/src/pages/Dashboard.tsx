@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import { PayrollContractState } from '../hooks/usePayrollContract'
 import { Employee } from '../hooks/useEmployees'
 import { microUnitsToUsdc, formatUsdcDisplay } from '../utils/formatUsdc'
-import { AlgorandClient } from '@algorandfoundation/algokit-utils'
 import { ellipseAddress } from '../utils/ellipseAddress'
+import { AlgorandClient } from '@algorandfoundation/algokit-utils'
+import { getAlgodConfigFromViteEnvironment } from '../utils/network/getAlgoClientConfigs'
+import { loadCompany } from '../utils/companyStore'
 
 interface DashboardProps {
   contract: PayrollContractState
@@ -13,67 +15,158 @@ interface DashboardProps {
 }
 
 const Dashboard = ({ contract, employees, getAlgorand, usdcAssetId }: DashboardProps) => {
-  const [contractBalance, setContractBalance] = useState<bigint>(0n)
-  const activeCount = employees.filter((e) => e.isActive).length
-  const totalMonthlyPayroll = employees.filter((e) => e.isActive).reduce((sum, e) => sum + e.salary, 0n)
+  const [usdcBalance, setUsdcBalance] = useState<bigint>(0n)
+  const [algoBalance, setAlgoBalance] = useState<bigint>(0n)
+  const activeEmployees = employees.filter((e) => e.isActive)
+  const activeCount = activeEmployees.length
+  const totalMonthlyPayroll = activeEmployees.reduce((sum, e) => sum + e.salary, 0n)
+  const network = getAlgodConfigFromViteEnvironment().network
+  const companyMeta = contract.appId ? loadCompany(contract.appId.toString()) : null
 
   useEffect(() => {
-    if (contract.appAddress && usdcAssetId > 0n) {
+    if (contract.appAddress) {
       const algorand = getAlgorand()
       algorand.account.getInformation(contract.appAddress).then((info) => {
-        const holding = info.assets?.find((a) => a.assetId === usdcAssetId)
-        setContractBalance(holding?.amount ?? 0n)
-      }).catch(() => setContractBalance(0n))
+        setAlgoBalance(info.balance?.microAlgo ?? 0n)
+        if (usdcAssetId > 0n) {
+          const holding = info.assets?.find((a) => a.assetId === usdcAssetId)
+          setUsdcBalance(holding?.amount ?? 0n)
+        }
+      }).catch(() => {
+        setUsdcBalance(0n)
+        setAlgoBalance(0n)
+      })
     }
   }, [contract.appAddress, usdcAssetId, getAlgorand])
+
+  const explorerBase = network === 'mainnet'
+    ? 'https://explorer.perawallet.app'
+    : 'https://testnet.explorer.perawallet.app'
 
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">Dashboard</h2>
 
-      <div className="stats shadow w-full">
-        <div className="stat">
-          <div className="stat-title">Contract USDC Balance</div>
-          <div className="stat-value text-primary">${microUnitsToUsdc(contractBalance)}</div>
-          <div className="stat-desc">Available for payroll</div>
+      {/* Treasury Wallet Card */}
+      <div className="rounded-xl p-6" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: 'rgba(250,250,247,0.4)' }}>
+              Treasury Wallet · {network} · {companyMeta?.name || 'Zeril Payroll'}
+            </div>
+          </div>
+          <a
+            href={`${explorerBase}/address/${contract.appAddress}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-mono opacity-40 hover:opacity-70 transition-opacity"
+          >
+            {ellipseAddress(contract.appAddress ?? '', 8)} ↗
+          </a>
         </div>
-        <div className="stat">
-          <div className="stat-title">Active Employees</div>
-          <div className="stat-value">{activeCount}</div>
-          <div className="stat-desc">{employees.length} total registered</div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="p-4 rounded-lg" style={{ backgroundColor: 'rgba(250,250,247,0.04)', border: '1px solid rgba(250,250,247,0.06)' }}>
+            <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>USDC Balance</div>
+            <div className="text-2xl font-bold font-mono">${microUnitsToUsdc(usdcBalance)}</div>
+          </div>
+          <div className="p-4 rounded-lg" style={{ backgroundColor: 'rgba(250,250,247,0.04)', border: '1px solid rgba(250,250,247,0.06)' }}>
+            <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>ALGO Balance</div>
+            <div className="text-2xl font-bold font-mono">{(Number(algoBalance) / 1_000_000).toFixed(4)}</div>
+          </div>
         </div>
-        <div className="stat">
-          <div className="stat-title">Monthly Payroll</div>
-          <div className="stat-value text-lg">{formatUsdcDisplay(totalMonthlyPayroll)}</div>
-          <div className="stat-desc">Total for active employees</div>
+
+        {usdcBalance < totalMonthlyPayroll && activeCount > 0 && (
+          <div className="mt-4 p-3 rounded-lg text-xs flex items-center gap-2" style={{ backgroundColor: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', color: '#FBBF24' }}>
+            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+            Insufficient USDC — contract needs ${microUnitsToUsdc(totalMonthlyPayroll - usdcBalance)} more to cover payroll.
+          </div>
+        )}
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="p-5 rounded-xl" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
+          <div className="text-[10px] font-mono tracking-wider uppercase mb-2" style={{ color: 'rgba(250,250,247,0.35)' }}>Active Employees</div>
+          <div className="text-3xl font-bold">{activeCount}</div>
+          <div className="text-xs mt-1" style={{ color: 'rgba(250,250,247,0.3)' }}>{employees.length} total registered</div>
+        </div>
+        <div className="p-5 rounded-xl" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
+          <div className="text-[10px] font-mono tracking-wider uppercase mb-2" style={{ color: 'rgba(250,250,247,0.35)' }}>Monthly Payroll</div>
+          <div className="text-3xl font-bold">{formatUsdcDisplay(totalMonthlyPayroll)}</div>
+          <div className="text-xs mt-1" style={{ color: 'rgba(250,250,247,0.3)' }}>across {activeCount} employees</div>
+        </div>
+        <div className="p-5 rounded-xl" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
+          <div className="text-[10px] font-mono tracking-wider uppercase mb-2" style={{ color: 'rgba(250,250,247,0.35)' }}>Months Covered</div>
+          <div className="text-3xl font-bold">
+            {totalMonthlyPayroll > 0n ? Math.floor(Number(usdcBalance) / Number(totalMonthlyPayroll)) : '—'}
+          </div>
+          <div className="text-xs mt-1" style={{ color: 'rgba(250,250,247,0.3)' }}>at current balance</div>
         </div>
       </div>
 
+      {/* Contract Info + Allocation Overview */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="card bg-base-100 shadow">
-          <div className="card-body">
-            <h3 className="card-title text-sm">Contract Info</h3>
-            <div className="text-sm space-y-1">
-              <div><span className="text-base-content/60">App ID:</span> {contract.appId?.toString()}</div>
-              <div><span className="text-base-content/60">Address:</span> <span className="font-mono text-xs">{ellipseAddress(contract.appAddress ?? '', 10)}</span></div>
-              <div><span className="text-base-content/60">USDC Asset:</span> {usdcAssetId.toString()}</div>
+        <div className="rounded-xl p-5" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
+          <h3 className="text-sm font-semibold mb-3">Contract Details</h3>
+          <div className="space-y-2 text-xs">
+            <div className="flex justify-between">
+              <span style={{ color: 'rgba(250,250,247,0.4)' }}>App ID</span>
+              <a href={`${explorerBase}/application/${contract.appId}`} target="_blank" rel="noopener noreferrer" className="font-mono hover:opacity-70">
+                {contract.appId?.toString()} ↗
+              </a>
+            </div>
+            <div className="flex justify-between">
+              <span style={{ color: 'rgba(250,250,247,0.4)' }}>USDC Asset</span>
+              <span className="font-mono">{usdcAssetId.toString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span style={{ color: 'rgba(250,250,247,0.4)' }}>Network</span>
+              <span className="capitalize">{network}</span>
+            </div>
+            <div className="flex justify-between">
+              <span style={{ color: 'rgba(250,250,247,0.4)' }}>Employer</span>
+              <span className="font-mono">{ellipseAddress(contract.employerAddress ?? '', 8)}</span>
             </div>
           </div>
         </div>
 
-        <div className="card bg-base-100 shadow">
-          <div className="card-body">
-            <h3 className="card-title text-sm">Quick Actions</h3>
-            <div className="text-sm text-base-content/60">
-              {contractBalance < totalMonthlyPayroll ? (
-                <div className="alert alert-warning text-xs">
-                  Contract balance is less than monthly payroll. Please fund the contract.
-                </div>
-              ) : (
-                <p>Contract is funded and ready for payroll.</p>
+        <div className="rounded-xl p-5" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
+          <h3 className="text-sm font-semibold mb-3">Allocation Overview</h3>
+          {activeEmployees.length > 0 ? (
+            <div className="space-y-2">
+              {activeEmployees.slice(0, 5).map(emp => {
+                const algoPct = 100 - emp.usdcPercentage
+                return (
+                  <div key={emp.address} className="flex items-center gap-3">
+                    <span className="font-mono text-xs w-20 truncate" style={{ color: 'rgba(250,250,247,0.5)' }}>{ellipseAddress(emp.address, 4)}</span>
+                    <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'rgba(250,250,247,0.06)' }}>
+                      <div className="h-full rounded-full flex">
+                        {emp.usdcPercentage > 0 && (
+                          <div className="h-full" style={{ width: `${emp.usdcPercentage}%`, backgroundColor: 'rgba(74,222,128,0.6)' }} />
+                        )}
+                        {algoPct > 0 && (
+                          <div className="h-full" style={{ width: `${algoPct}%`, backgroundColor: 'rgba(250,250,247,0.3)' }} />
+                        )}
+                      </div>
+                    </div>
+                    <span className="font-mono text-[10px] w-20 text-right" style={{ color: 'rgba(250,250,247,0.4)' }}>
+                      {emp.usdcPercentage}% / {algoPct}%
+                    </span>
+                  </div>
+                )
+              })}
+              {activeEmployees.length > 5 && (
+                <div className="text-xs opacity-30">+{activeEmployees.length - 5} more</div>
               )}
+              <div className="flex items-center gap-4 mt-2 pt-2 text-[10px]" style={{ borderTop: '1px solid rgba(250,250,247,0.06)' }}>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: 'rgba(74,222,128,0.6)' }} /> USDC</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: 'rgba(250,250,247,0.3)' }} /> ALGO</span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <p className="text-xs opacity-30 py-4">No active employees yet.</p>
+          )}
         </div>
       </div>
     </div>

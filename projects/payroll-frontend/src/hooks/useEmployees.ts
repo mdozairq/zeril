@@ -8,6 +8,7 @@ export interface Employee {
   isActive: boolean
   lastPaidRound: bigint
   optedIntoUsdc: boolean
+  usdcPercentage: number
 }
 
 function recordToEmployee(address: string, record: EmployeeRecord, optedIn: boolean): Employee {
@@ -17,6 +18,7 @@ function recordToEmployee(address: string, record: EmployeeRecord, optedIn: bool
     isActive: record.isActive === 1n,
     lastPaidRound: record.lastPaidRound,
     optedIntoUsdc: optedIn,
+    usdcPercentage: Number(record.usdcPercentage),
   }
 }
 

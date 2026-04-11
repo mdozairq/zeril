@@ -11,15 +11,21 @@ const Header = ({ onConnectWallet }: HeaderProps) => {
   const network = getAlgodConfigFromViteEnvironment().network
 
   return (
-    <div className="navbar bg-base-100 border-b">
+    <div className="navbar border-b px-6" style={{ backgroundColor: '#0A0A0A', borderColor: 'rgba(250,250,247,0.06)' }}>
       <div className="flex-1">
-        <span className="text-sm text-base-content/60">Blockchain Payroll Platform</span>
+        <span className="text-xs" style={{ color: 'rgba(250,250,247,0.4)' }}>Payroll Platform</span>
       </div>
-      <div className="flex-none gap-2">
+      <div className="flex-none gap-3">
         {activeAddress && (
-          <div className="badge badge-outline badge-sm">{network}</div>
+          <span className="text-[10px] font-mono px-2 py-1 rounded" style={{ backgroundColor: 'rgba(250,250,247,0.05)', color: 'rgba(250,250,247,0.5)' }}>
+            {network}
+          </span>
         )}
-        <button className="btn btn-sm btn-primary" onClick={onConnectWallet}>
+        <button
+          className="btn btn-sm btn-ghost font-mono text-xs"
+          onClick={onConnectWallet}
+          style={{ color: 'rgba(250,250,247,0.7)' }}
+        >
           {activeAddress ? ellipseAddress(activeAddress) : 'Connect Wallet'}
         </button>
       </div>

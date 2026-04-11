@@ -1,0 +1,109 @@
+/* Landing page styles — scoped under .landing */
+
+.landing {
+  --l-bg: #0A0A0A;
+  --l-fg: #FAFAF7;
+  --l-muted: rgba(250, 250, 247, 0.45);
+  --l-border: rgba(250, 250, 247, 0.08);
+  --l-accent: #FAFAF7;
+  --l-dark: #0A0A0A;
+  --l-light: #FAFAF7;
+
+  font-family: 'Outfit', sans-serif;
+  background-color: var(--l-bg);
+  color: var(--l-fg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.landing * {
+  box-sizing: border-box;
+}
+
+.font-serif {
+  font-family: 'Instrument Serif', serif;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Glass pill buttons — unified across entire page */
+.glass-pill {
+  background: linear-gradient(145deg, rgba(250,250,247,0.04) 0%, rgba(250,250,247,0.01) 100%);
+  box-shadow:
+    0 10px 30px -10px rgba(0,0,0,0.5),
+    inset 0 1px 1px rgba(250,250,247,0.06),
+    inset 0 -1px 2px rgba(0,0,0,0.6);
+  border: 1px solid rgba(250,250,247,0.1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-pill:hover {
+  background: linear-gradient(145deg, rgba(250,250,247,0.1) 0%, rgba(250,250,247,0.03) 100%);
+  border-color: rgba(250,250,247,0.25);
+  box-shadow:
+    0 20px 40px -10px rgba(0,0,0,0.7),
+    inset 0 1px 1px rgba(250,250,247,0.12);
+  color: #FAFAF7;
+}
+
+/* Marquee animation */
+@keyframes marquee-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.marquee-track {
+  display: flex;
+  animation: marquee-scroll 40s linear infinite;
+  will-change: transform;
+}
+
+.marquee-track:hover {
+  animation-play-state: paused;
+}
+
+/* Smooth scroll */
+.landing {
+  scroll-behavior: smooth;
+}
+
+/* Selection color */
+.landing ::selection {
+  background-color: rgba(250, 250, 247, 0.2);
+  color: #FAFAF7;
+}
+
+/* Landing-specific link reset */
+.landing a {
+  text-decoration: none;
+  color: inherit;
+}
+
+/* Code block scrollbar */
+.landing pre::-webkit-scrollbar {
+  height: 4px;
+}
+.landing pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+.landing pre::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 2px;
+}
+
+/* Noise grain overlay */
+.landing-grain::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+}
