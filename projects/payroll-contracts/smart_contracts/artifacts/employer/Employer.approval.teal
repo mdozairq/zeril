@@ -3,38 +3,38 @@
 
 // @algorandfoundation/algorand-typescript/arc4/index.d.ts::Contract.approvalProgram() -> uint64:
 main:
-    intcblock 0 1 8 32
-    bytecblock "employer" "employeeCount" "emp" "totalPayrollRuns" "usdcAssetId"
+    intcblock 0 1 32 8
+    bytecblock "employer" "emp" "employeeCount" "totalPayrollRuns" "usdcAssetId" "rcv"
     txn ApplicationID
     bnz main_after_if_else@2
-    // smart_contracts/employer/contract.algo.ts:28
+    // smart_contracts/employer/contract.algo.ts:29
     // employeeCount = GlobalState<uint64>({ initialValue: Uint64(0) })
-    bytec_1 // "employeeCount"
+    bytec_2 // "employeeCount"
     intc_0 // 0
     app_global_put
-    // smart_contracts/employer/contract.algo.ts:29
+    // smart_contracts/employer/contract.algo.ts:30
     // totalPayrollRuns = GlobalState<uint64>({ initialValue: Uint64(0) })
     bytec_3 // "totalPayrollRuns"
     intc_0 // 0
     app_global_put
 
 main_after_if_else@2:
-    // smart_contracts/employer/contract.algo.ts:24
+    // smart_contracts/employer/contract.algo.ts:25
     // export class Employer extends Contract {
     txn NumAppArgs
-    bz main___algots__.defaultCreate@16
+    bz main___algots__.defaultCreate@18
     txn OnCompletion
     !
     assert // OnCompletion must be NoOp
     txn ApplicationID
     assert
-    pushbytess 0x08549ad7 0xa4e8d164 0x9d40f791 0x6dda1305 0x22a14065 0x52aaf709 0x6b170d2e // method "initialize(uint64)void", method "bootstrap(pay)void", method "addEmployee(address,uint64,pay)void", method "removeEmployee(address)void", method "updateSalary(address,uint64)void", method "payEmployee(address)void", method "getEmployee(address)(uint64,uint64,uint64)"
+    pushbytess 0x08549ad7 0xa4e8d164 0x9d40f791 0x6dda1305 0x22a14065 0x6fa7ddfc 0x6e354fa7 0xed9469bd 0x5c819399 // method "initialize(uint64)void", method "bootstrap(pay)void", method "addEmployee(address,uint64,pay)void", method "removeEmployee(address)void", method "updateSalary(address,uint64)void", method "setAllocation(address,uint64)void", method "setAlgoReceiver(address,address,pay)void", method "payEmployee(address,uint64)void", method "getEmployee(address)(uint64,uint64,uint64,uint64)"
     txna ApplicationArgs 0
-    match initialize bootstrap addEmployee removeEmployee updateSalary payEmployee getEmployee
+    match initialize bootstrap addEmployee removeEmployee updateSalary setAllocation setAlgoReceiver payEmployee getEmployee
     err
 
-main___algots__.defaultCreate@16:
-    // smart_contracts/employer/contract.algo.ts:24
+main___algots__.defaultCreate@18:
+    // smart_contracts/employer/contract.algo.ts:25
     // export class Employer extends Contract {
     txn OnCompletion
     !
@@ -48,42 +48,42 @@ main___algots__.defaultCreate@16:
 
 // smart_contracts/employer/contract.algo.ts::Employer.initialize[routing]() -> void:
 initialize:
-    // smart_contracts/employer/contract.algo.ts:38
+    // smart_contracts/employer/contract.algo.ts:44
     // public initialize(usdcAsset: Asset): void {
     txna ApplicationArgs 1
     dup
     len
-    intc_2 // 8
+    intc_3 // 8
     ==
     assert // invalid number of bytes for arc4.uint64
     btoi
-    // smart_contracts/employer/contract.algo.ts:39
+    // smart_contracts/employer/contract.algo.ts:45
     // assert(!this.employer.hasValue, 'Already initialized')
     intc_0 // 0
-    // smart_contracts/employer/contract.algo.ts:26
+    // smart_contracts/employer/contract.algo.ts:27
     // employer = GlobalState<Account>()
     bytec_0 // "employer"
-    // smart_contracts/employer/contract.algo.ts:39
+    // smart_contracts/employer/contract.algo.ts:45
     // assert(!this.employer.hasValue, 'Already initialized')
     app_global_get_ex
     bury 1
     !
     assert // Already initialized
-    // smart_contracts/employer/contract.algo.ts:26
+    // smart_contracts/employer/contract.algo.ts:27
     // employer = GlobalState<Account>()
     bytec_0 // "employer"
-    // smart_contracts/employer/contract.algo.ts:40
+    // smart_contracts/employer/contract.algo.ts:46
     // this.employer.value = Txn.sender
     txn Sender
     app_global_put
-    // smart_contracts/employer/contract.algo.ts:27
+    // smart_contracts/employer/contract.algo.ts:28
     // usdcAssetId = GlobalState<Asset>()
     bytec 4 // "usdcAssetId"
-    // smart_contracts/employer/contract.algo.ts:41
+    // smart_contracts/employer/contract.algo.ts:47
     // this.usdcAssetId.value = usdcAsset
     swap
     app_global_put
-    // smart_contracts/employer/contract.algo.ts:38
+    // smart_contracts/employer/contract.algo.ts:44
     // public initialize(usdcAsset: Asset): void {
     intc_1 // 1
     return
@@ -91,7 +91,7 @@ initialize:
 
 // smart_contracts/employer/contract.algo.ts::Employer.bootstrap[routing]() -> void:
 bootstrap:
-    // smart_contracts/employer/contract.algo.ts:48
+    // smart_contracts/employer/contract.algo.ts:54
     // public bootstrap(mbrPayment: gtxn.PaymentTxn): void {
     txn GroupIndex
     intc_1 // 1
@@ -101,31 +101,31 @@ bootstrap:
     intc_1 // pay
     ==
     assert // transaction type is pay
-    // smart_contracts/employer/contract.algo.ts:49
+    // smart_contracts/employer/contract.algo.ts:55
     // assert(Txn.sender === this.employer.value, 'Only employer can bootstrap')
     txn Sender
     intc_0 // 0
-    // smart_contracts/employer/contract.algo.ts:26
+    // smart_contracts/employer/contract.algo.ts:27
     // employer = GlobalState<Account>()
     bytec_0 // "employer"
-    // smart_contracts/employer/contract.algo.ts:49
+    // smart_contracts/employer/contract.algo.ts:55
     // assert(Txn.sender === this.employer.value, 'Only employer can bootstrap')
     app_global_get_ex
     assert // check GlobalState exists
     ==
     assert // Only employer can bootstrap
-    // smart_contracts/employer/contract.algo.ts:51
+    // smart_contracts/employer/contract.algo.ts:57
     // mbrPayment.receiver === Global.currentApplicationAddress,
     gtxns Receiver
     global CurrentApplicationAddress
     ==
-    // smart_contracts/employer/contract.algo.ts:50-53
+    // smart_contracts/employer/contract.algo.ts:56-59
     // assert(
     //   mbrPayment.receiver === Global.currentApplicationAddress,
     //   'MBR payment must be sent to the app',
     // )
     assert // MBR payment must be sent to the app
-    // smart_contracts/employer/contract.algo.ts:55-62
+    // smart_contracts/employer/contract.algo.ts:61-68
     // itxn
     //   .assetTransfer({
     //     assetReceiver: Global.currentApplicationAddress,
@@ -135,26 +135,26 @@ bootstrap:
     //   })
     //   .submit()
     itxn_begin
-    // smart_contracts/employer/contract.algo.ts:57
+    // smart_contracts/employer/contract.algo.ts:63
     // assetReceiver: Global.currentApplicationAddress,
     global CurrentApplicationAddress
-    // smart_contracts/employer/contract.algo.ts:58
+    // smart_contracts/employer/contract.algo.ts:64
     // xferAsset: this.usdcAssetId.value,
     intc_0 // 0
-    // smart_contracts/employer/contract.algo.ts:27
+    // smart_contracts/employer/contract.algo.ts:28
     // usdcAssetId = GlobalState<Asset>()
     bytec 4 // "usdcAssetId"
-    // smart_contracts/employer/contract.algo.ts:58
+    // smart_contracts/employer/contract.algo.ts:64
     // xferAsset: this.usdcAssetId.value,
     app_global_get_ex
     assert // check GlobalState exists
-    // smart_contracts/employer/contract.algo.ts:59
+    // smart_contracts/employer/contract.algo.ts:65
     // assetAmount: 0,
     intc_0 // 0
     itxn_field AssetAmount
     itxn_field XferAsset
     itxn_field AssetReceiver
-    // smart_contracts/employer/contract.algo.ts:55-61
+    // smart_contracts/employer/contract.algo.ts:61-67
     // itxn
     //   .assetTransfer({
     //     assetReceiver: Global.currentApplicationAddress,
@@ -164,11 +164,11 @@ bootstrap:
     //   })
     pushint 4 // 4
     itxn_field TypeEnum
-    // smart_contracts/employer/contract.algo.ts:60
+    // smart_contracts/employer/contract.algo.ts:66
     // fee: 0,
     intc_0 // 0
     itxn_field Fee
-    // smart_contracts/employer/contract.algo.ts:55-62
+    // smart_contracts/employer/contract.algo.ts:61-68
     // itxn
     //   .assetTransfer({
     //     assetReceiver: Global.currentApplicationAddress,
@@ -178,7 +178,7 @@ bootstrap:
     //   })
     //   .submit()
     itxn_submit
-    // smart_contracts/employer/contract.algo.ts:48
+    // smart_contracts/employer/contract.algo.ts:54
     // public bootstrap(mbrPayment: gtxn.PaymentTxn): void {
     intc_1 // 1
     return
@@ -186,18 +186,18 @@ bootstrap:
 
 // smart_contracts/employer/contract.algo.ts::Employer.addEmployee[routing]() -> void:
 addEmployee:
-    // smart_contracts/employer/contract.algo.ts:69
+    // smart_contracts/employer/contract.algo.ts:78
     // public addEmployee(employee: Account, salary: uint64, mbrPay: gtxn.PaymentTxn): void {
     txna ApplicationArgs 1
     dup
     len
-    intc_3 // 32
+    intc_2 // 32
     ==
     assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
     txna ApplicationArgs 2
     dup
     len
-    intc_2 // 8
+    intc_3 // 8
     ==
     assert // invalid number of bytes for arc4.uint64
     btoi
@@ -209,95 +209,110 @@ addEmployee:
     intc_1 // pay
     ==
     assert // transaction type is pay
-    // smart_contracts/employer/contract.algo.ts:70
+    // smart_contracts/employer/contract.algo.ts:79
     // assert(Txn.sender === this.employer.value, 'Only employer can add employees')
     txn Sender
     intc_0 // 0
-    // smart_contracts/employer/contract.algo.ts:26
+    // smart_contracts/employer/contract.algo.ts:27
     // employer = GlobalState<Account>()
     bytec_0 // "employer"
-    // smart_contracts/employer/contract.algo.ts:70
+    // smart_contracts/employer/contract.algo.ts:79
     // assert(Txn.sender === this.employer.value, 'Only employer can add employees')
     app_global_get_ex
     assert // check GlobalState exists
     ==
     assert // Only employer can add employees
-    // smart_contracts/employer/contract.algo.ts:72
+    // smart_contracts/employer/contract.algo.ts:81
     // mbrPay.receiver === Global.currentApplicationAddress,
     gtxns Receiver
     global CurrentApplicationAddress
     ==
-    // smart_contracts/employer/contract.algo.ts:71-74
+    // smart_contracts/employer/contract.algo.ts:80-83
     // assert(
     //   mbrPay.receiver === Global.currentApplicationAddress,
     //   'MBR payment must be sent to the app',
     // )
     assert // MBR payment must be sent to the app
-    // smart_contracts/employer/contract.algo.ts:32
+    // smart_contracts/employer/contract.algo.ts:33
     // employees = BoxMap<Account, EmployeeRecord>({ keyPrefix: 'emp' })
-    bytec_2 // "emp"
+    bytec_1 // "emp"
     uncover 2
     concat
-    // smart_contracts/employer/contract.algo.ts:75
+    // smart_contracts/employer/contract.algo.ts:84
     // assert(!this.employees(employee).exists, 'Employee already exists')
     dup
     box_len
     bury 1
     !
     assert // Employee already exists
-    // smart_contracts/employer/contract.algo.ts:77-81
+    // smart_contracts/employer/contract.algo.ts:86-91
     // const record: EmployeeRecord = {
     //   salaryUsdcMicrounits: salary,
     //   isActive: Uint64(1),
     //   lastPaidRound: Uint64(0),
+    //   usdcPercentage: Uint64(100),
     // }
     swap
     itob
-    // smart_contracts/employer/contract.algo.ts:79
+    // smart_contracts/employer/contract.algo.ts:88
     // isActive: Uint64(1),
     intc_1 // 1
-    // smart_contracts/employer/contract.algo.ts:77-81
+    // smart_contracts/employer/contract.algo.ts:86-91
     // const record: EmployeeRecord = {
     //   salaryUsdcMicrounits: salary,
     //   isActive: Uint64(1),
     //   lastPaidRound: Uint64(0),
+    //   usdcPercentage: Uint64(100),
     // }
     itob
     concat
-    // smart_contracts/employer/contract.algo.ts:80
+    // smart_contracts/employer/contract.algo.ts:89
     // lastPaidRound: Uint64(0),
     intc_0 // 0
-    // smart_contracts/employer/contract.algo.ts:77-81
+    // smart_contracts/employer/contract.algo.ts:86-91
     // const record: EmployeeRecord = {
     //   salaryUsdcMicrounits: salary,
     //   isActive: Uint64(1),
     //   lastPaidRound: Uint64(0),
+    //   usdcPercentage: Uint64(100),
     // }
     itob
     concat
-    // smart_contracts/employer/contract.algo.ts:82
+    // smart_contracts/employer/contract.algo.ts:90
+    // usdcPercentage: Uint64(100),
+    pushint 100 // 100
+    // smart_contracts/employer/contract.algo.ts:86-91
+    // const record: EmployeeRecord = {
+    //   salaryUsdcMicrounits: salary,
+    //   isActive: Uint64(1),
+    //   lastPaidRound: Uint64(0),
+    //   usdcPercentage: Uint64(100),
+    // }
+    itob
+    concat
+    // smart_contracts/employer/contract.algo.ts:92
     // this.employees(employee).value = clone(record)
     box_put
-    // smart_contracts/employer/contract.algo.ts:83
+    // smart_contracts/employer/contract.algo.ts:93
     // this.employeeCount.value = this.employeeCount.value + 1
     intc_0 // 0
-    // smart_contracts/employer/contract.algo.ts:28
+    // smart_contracts/employer/contract.algo.ts:29
     // employeeCount = GlobalState<uint64>({ initialValue: Uint64(0) })
-    bytec_1 // "employeeCount"
-    // smart_contracts/employer/contract.algo.ts:83
+    bytec_2 // "employeeCount"
+    // smart_contracts/employer/contract.algo.ts:93
     // this.employeeCount.value = this.employeeCount.value + 1
     app_global_get_ex
     assert // check GlobalState exists
     intc_1 // 1
     +
-    // smart_contracts/employer/contract.algo.ts:28
+    // smart_contracts/employer/contract.algo.ts:29
     // employeeCount = GlobalState<uint64>({ initialValue: Uint64(0) })
-    bytec_1 // "employeeCount"
-    // smart_contracts/employer/contract.algo.ts:83
+    bytec_2 // "employeeCount"
+    // smart_contracts/employer/contract.algo.ts:93
     // this.employeeCount.value = this.employeeCount.value + 1
     swap
     app_global_put
-    // smart_contracts/employer/contract.algo.ts:69
+    // smart_contracts/employer/contract.algo.ts:78
     // public addEmployee(employee: Account, salary: uint64, mbrPay: gtxn.PaymentTxn): void {
     intc_1 // 1
     return
@@ -305,65 +320,65 @@ addEmployee:
 
 // smart_contracts/employer/contract.algo.ts::Employer.removeEmployee[routing]() -> void:
 removeEmployee:
-    // smart_contracts/employer/contract.algo.ts:89
+    // smart_contracts/employer/contract.algo.ts:99
     // public removeEmployee(employee: Account): void {
     txna ApplicationArgs 1
     dup
     len
-    intc_3 // 32
+    intc_2 // 32
     ==
     assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
-    // smart_contracts/employer/contract.algo.ts:90
+    // smart_contracts/employer/contract.algo.ts:100
     // assert(Txn.sender === this.employer.value, 'Only employer can remove employees')
     txn Sender
     intc_0 // 0
-    // smart_contracts/employer/contract.algo.ts:26
+    // smart_contracts/employer/contract.algo.ts:27
     // employer = GlobalState<Account>()
     bytec_0 // "employer"
-    // smart_contracts/employer/contract.algo.ts:90
+    // smart_contracts/employer/contract.algo.ts:100
     // assert(Txn.sender === this.employer.value, 'Only employer can remove employees')
     app_global_get_ex
     assert // check GlobalState exists
     ==
     assert // Only employer can remove employees
-    // smart_contracts/employer/contract.algo.ts:32
+    // smart_contracts/employer/contract.algo.ts:33
     // employees = BoxMap<Account, EmployeeRecord>({ keyPrefix: 'emp' })
-    bytec_2 // "emp"
+    bytec_1 // "emp"
     swap
     concat
-    // smart_contracts/employer/contract.algo.ts:91
+    // smart_contracts/employer/contract.algo.ts:101
     // assert(this.employees(employee).exists, 'Employee does not exist')
     dup
     box_len
     bury 1
     assert // Employee does not exist
-    // smart_contracts/employer/contract.algo.ts:93
+    // smart_contracts/employer/contract.algo.ts:103
     // this.employees(employee).value.isActive = Uint64(0)
     intc_0 // 0
     itob
-    intc_2 // 8
+    intc_3 // 8
     swap
     box_replace
-    // smart_contracts/employer/contract.algo.ts:94
+    // smart_contracts/employer/contract.algo.ts:104
     // this.employeeCount.value = this.employeeCount.value - 1
     intc_0 // 0
-    // smart_contracts/employer/contract.algo.ts:28
+    // smart_contracts/employer/contract.algo.ts:29
     // employeeCount = GlobalState<uint64>({ initialValue: Uint64(0) })
-    bytec_1 // "employeeCount"
-    // smart_contracts/employer/contract.algo.ts:94
+    bytec_2 // "employeeCount"
+    // smart_contracts/employer/contract.algo.ts:104
     // this.employeeCount.value = this.employeeCount.value - 1
     app_global_get_ex
     assert // check GlobalState exists
     intc_1 // 1
     -
-    // smart_contracts/employer/contract.algo.ts:28
+    // smart_contracts/employer/contract.algo.ts:29
     // employeeCount = GlobalState<uint64>({ initialValue: Uint64(0) })
-    bytec_1 // "employeeCount"
-    // smart_contracts/employer/contract.algo.ts:94
+    bytec_2 // "employeeCount"
+    // smart_contracts/employer/contract.algo.ts:104
     // this.employeeCount.value = this.employeeCount.value - 1
     swap
     app_global_put
-    // smart_contracts/employer/contract.algo.ts:89
+    // smart_contracts/employer/contract.algo.ts:99
     // public removeEmployee(employee: Account): void {
     intc_1 // 1
     return
@@ -371,211 +386,517 @@ removeEmployee:
 
 // smart_contracts/employer/contract.algo.ts::Employer.updateSalary[routing]() -> void:
 updateSalary:
-    // smart_contracts/employer/contract.algo.ts:100
+    // smart_contracts/employer/contract.algo.ts:110
     // public updateSalary(employee: Account, newSalary: uint64): void {
     txna ApplicationArgs 1
     dup
     len
-    intc_3 // 32
+    intc_2 // 32
     ==
     assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
     txna ApplicationArgs 2
     dup
     len
-    intc_2 // 8
+    intc_3 // 8
     ==
     assert // invalid number of bytes for arc4.uint64
-    // smart_contracts/employer/contract.algo.ts:101
+    // smart_contracts/employer/contract.algo.ts:111
     // assert(Txn.sender === this.employer.value, 'Only employer can update salary')
     txn Sender
     intc_0 // 0
-    // smart_contracts/employer/contract.algo.ts:26
+    // smart_contracts/employer/contract.algo.ts:27
     // employer = GlobalState<Account>()
     bytec_0 // "employer"
-    // smart_contracts/employer/contract.algo.ts:101
+    // smart_contracts/employer/contract.algo.ts:111
     // assert(Txn.sender === this.employer.value, 'Only employer can update salary')
     app_global_get_ex
     assert // check GlobalState exists
     ==
     assert // Only employer can update salary
-    // smart_contracts/employer/contract.algo.ts:32
+    // smart_contracts/employer/contract.algo.ts:33
     // employees = BoxMap<Account, EmployeeRecord>({ keyPrefix: 'emp' })
-    bytec_2 // "emp"
+    bytec_1 // "emp"
     uncover 2
     concat
-    // smart_contracts/employer/contract.algo.ts:102
-    // assert(this.employees(employee).exists, 'Employee does not exist')
-    dup
-    box_len
-    bury 1
-    assert // Employee does not exist
-    // smart_contracts/employer/contract.algo.ts:104
-    // this.employees(employee).value.salaryUsdcMicrounits = newSalary
-    intc_0 // 0
-    uncover 2
-    box_replace
-    // smart_contracts/employer/contract.algo.ts:100
-    // public updateSalary(employee: Account, newSalary: uint64): void {
-    intc_1 // 1
-    return
-
-
-// smart_contracts/employer/contract.algo.ts::Employer.payEmployee[routing]() -> void:
-payEmployee:
-    // smart_contracts/employer/contract.algo.ts:111
-    // public payEmployee(employee: Account): void {
-    txna ApplicationArgs 1
-    dup
-    len
-    intc_3 // 32
-    ==
-    assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
     // smart_contracts/employer/contract.algo.ts:112
-    // assert(Txn.sender === this.employer.value, 'Only employer can pay employees')
-    txn Sender
-    intc_0 // 0
-    // smart_contracts/employer/contract.algo.ts:26
-    // employer = GlobalState<Account>()
-    bytec_0 // "employer"
-    // smart_contracts/employer/contract.algo.ts:112
-    // assert(Txn.sender === this.employer.value, 'Only employer can pay employees')
-    app_global_get_ex
-    assert // check GlobalState exists
-    ==
-    assert // Only employer can pay employees
-    // smart_contracts/employer/contract.algo.ts:32
-    // employees = BoxMap<Account, EmployeeRecord>({ keyPrefix: 'emp' })
-    bytec_2 // "emp"
-    dig 1
-    concat
-    // smart_contracts/employer/contract.algo.ts:113
     // assert(this.employees(employee).exists, 'Employee does not exist')
     dup
     box_len
     bury 1
     assert // Employee does not exist
     // smart_contracts/employer/contract.algo.ts:114
-    // assert(this.employees(employee).value.isActive === Uint64(1), 'Employee is not active')
-    dup
-    box_get
-    pop
-    dup
-    intc_2 // 8
-    extract_uint64
-    intc_1 // 1
-    ==
-    assert // Employee is not active
-    // smart_contracts/employer/contract.algo.ts:116
-    // const salary = this.employees(employee).value.salaryUsdcMicrounits
+    // this.employees(employee).value.salaryUsdcMicrounits = newSalary
     intc_0 // 0
-    extract_uint64
-    // smart_contracts/employer/contract.algo.ts:118-125
-    // itxn
-    //   .assetTransfer({
-    //     assetReceiver: employee,
-    //     xferAsset: this.usdcAssetId.value,
-    //     assetAmount: salary,
-    //     fee: 0,
-    //   })
-    //   .submit()
-    itxn_begin
-    // smart_contracts/employer/contract.algo.ts:121
-    // xferAsset: this.usdcAssetId.value,
-    intc_0 // 0
-    // smart_contracts/employer/contract.algo.ts:27
-    // usdcAssetId = GlobalState<Asset>()
-    bytec 4 // "usdcAssetId"
-    // smart_contracts/employer/contract.algo.ts:121
-    // xferAsset: this.usdcAssetId.value,
-    app_global_get_ex
-    assert // check GlobalState exists
-    itxn_field XferAsset
-    itxn_field AssetAmount
-    swap
-    itxn_field AssetReceiver
-    // smart_contracts/employer/contract.algo.ts:118-124
-    // itxn
-    //   .assetTransfer({
-    //     assetReceiver: employee,
-    //     xferAsset: this.usdcAssetId.value,
-    //     assetAmount: salary,
-    //     fee: 0,
-    //   })
-    pushint 4 // 4
-    itxn_field TypeEnum
-    // smart_contracts/employer/contract.algo.ts:123
-    // fee: 0,
-    intc_0 // 0
-    itxn_field Fee
-    // smart_contracts/employer/contract.algo.ts:118-125
-    // itxn
-    //   .assetTransfer({
-    //     assetReceiver: employee,
-    //     xferAsset: this.usdcAssetId.value,
-    //     assetAmount: salary,
-    //     fee: 0,
-    //   })
-    //   .submit()
-    itxn_submit
-    // smart_contracts/employer/contract.algo.ts:127
-    // this.employees(employee).value.lastPaidRound = Global.round
-    global Round
-    itob
-    pushint 16 // 16
-    swap
+    uncover 2
     box_replace
-    // smart_contracts/employer/contract.algo.ts:128
-    // this.totalPayrollRuns.value = this.totalPayrollRuns.value + 1
-    intc_0 // 0
-    // smart_contracts/employer/contract.algo.ts:29
-    // totalPayrollRuns = GlobalState<uint64>({ initialValue: Uint64(0) })
-    bytec_3 // "totalPayrollRuns"
-    // smart_contracts/employer/contract.algo.ts:128
-    // this.totalPayrollRuns.value = this.totalPayrollRuns.value + 1
-    app_global_get_ex
-    assert // check GlobalState exists
-    intc_1 // 1
-    +
-    // smart_contracts/employer/contract.algo.ts:29
-    // totalPayrollRuns = GlobalState<uint64>({ initialValue: Uint64(0) })
-    bytec_3 // "totalPayrollRuns"
-    // smart_contracts/employer/contract.algo.ts:128
-    // this.totalPayrollRuns.value = this.totalPayrollRuns.value + 1
-    swap
-    app_global_put
-    // smart_contracts/employer/contract.algo.ts:111
-    // public payEmployee(employee: Account): void {
+    // smart_contracts/employer/contract.algo.ts:110
+    // public updateSalary(employee: Account, newSalary: uint64): void {
     intc_1 // 1
     return
 
 
-// smart_contracts/employer/contract.algo.ts::Employer.getEmployee[routing]() -> void:
-getEmployee:
-    // smart_contracts/employer/contract.algo.ts:134-135
-    // @readonly
-    // public getEmployee(employee: Account): EmployeeRecord {
+// smart_contracts/employer/contract.algo.ts::Employer.setAllocation[routing]() -> void:
+setAllocation:
+    // smart_contracts/employer/contract.algo.ts:126
+    // public setAllocation(employee: Account, usdcPct: uint64): void {
     txna ApplicationArgs 1
-    dup
+    dupn 2
     len
-    intc_3 // 32
+    intc_2 // 32
     ==
     assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
-    // smart_contracts/employer/contract.algo.ts:32
-    // employees = BoxMap<Account, EmployeeRecord>({ keyPrefix: 'emp' })
-    bytec_2 // "emp"
+    txna ApplicationArgs 2
+    dup
+    cover 2
+    dup
+    len
+    intc_3 // 8
+    ==
+    assert // invalid number of bytes for arc4.uint64
+    btoi
     swap
+    // smart_contracts/employer/contract.algo.ts:128
+    // Txn.sender === employee || Txn.sender === this.employer.value,
+    txn Sender
+    ==
+    bnz setAllocation_bool_true@3
+    txn Sender
+    intc_0 // 0
+    // smart_contracts/employer/contract.algo.ts:27
+    // employer = GlobalState<Account>()
+    bytec_0 // "employer"
+    // smart_contracts/employer/contract.algo.ts:128
+    // Txn.sender === employee || Txn.sender === this.employer.value,
+    app_global_get_ex
+    assert // check GlobalState exists
+    ==
+    bz setAllocation_bool_false@4
+
+setAllocation_bool_true@3:
+    intc_1 // 1
+
+setAllocation_bool_merge@5:
+    // smart_contracts/employer/contract.algo.ts:127-130
+    // assert(
+    //   Txn.sender === employee || Txn.sender === this.employer.value,
+    //   'Only employee or employer can set allocation',
+    // )
+    assert // Only employee or employer can set allocation
+    // smart_contracts/employer/contract.algo.ts:33
+    // employees = BoxMap<Account, EmployeeRecord>({ keyPrefix: 'emp' })
+    bytec_1 // "emp"
+    dig 3
     concat
-    // smart_contracts/employer/contract.algo.ts:136
+    // smart_contracts/employer/contract.algo.ts:131
     // assert(this.employees(employee).exists, 'Employee does not exist')
     dup
     box_len
     bury 1
     assert // Employee does not exist
-    // smart_contracts/employer/contract.algo.ts:137
+    // smart_contracts/employer/contract.algo.ts:132
+    // assert(usdcPct <= Uint64(100), 'Percentage must be 0-100')
+    dig 1
+    pushint 100 // 100
+    <=
+    assert // Percentage must be 0-100
+    // smart_contracts/employer/contract.algo.ts:134
+    // this.employees(employee).value.usdcPercentage = usdcPct
+    pushint 24 // 24
+    dig 3
+    box_replace
+    // smart_contracts/employer/contract.algo.ts:126
+    // public setAllocation(employee: Account, usdcPct: uint64): void {
+    intc_1 // 1
+    return
+
+setAllocation_bool_false@4:
+    intc_0 // 0
+    b setAllocation_bool_merge@5
+
+
+// smart_contracts/employer/contract.algo.ts::Employer.setAlgoReceiver[routing]() -> void:
+setAlgoReceiver:
+    // smart_contracts/employer/contract.algo.ts:142-146
+    // public setAlgoReceiver(
+    //   employee: Account,
+    //   receiver: Account,
+    //   mbrPay: gtxn.PaymentTxn,
+    // ): void {
+    txna ApplicationArgs 1
+    dupn 2
+    len
+    intc_2 // 32
+    ==
+    assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
+    txna ApplicationArgs 2
+    dup
+    cover 2
+    len
+    intc_2 // 32
+    ==
+    assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
+    txn GroupIndex
+    intc_1 // 1
+    -
+    dup
+    cover 2
+    gtxns TypeEnum
+    intc_1 // pay
+    ==
+    assert // transaction type is pay
+    // smart_contracts/employer/contract.algo.ts:148
+    // Txn.sender === employee || Txn.sender === this.employer.value,
+    txn Sender
+    ==
+    bnz setAlgoReceiver_bool_true@3
+    txn Sender
+    intc_0 // 0
+    // smart_contracts/employer/contract.algo.ts:27
+    // employer = GlobalState<Account>()
+    bytec_0 // "employer"
+    // smart_contracts/employer/contract.algo.ts:148
+    // Txn.sender === employee || Txn.sender === this.employer.value,
+    app_global_get_ex
+    assert // check GlobalState exists
+    ==
+    bz setAlgoReceiver_bool_false@4
+
+setAlgoReceiver_bool_true@3:
+    intc_1 // 1
+
+setAlgoReceiver_bool_merge@5:
+    // smart_contracts/employer/contract.algo.ts:147-150
+    // assert(
+    //   Txn.sender === employee || Txn.sender === this.employer.value,
+    //   'Only employee or employer',
+    // )
+    assert // Only employee or employer
+    // smart_contracts/employer/contract.algo.ts:33
+    // employees = BoxMap<Account, EmployeeRecord>({ keyPrefix: 'emp' })
+    bytec_1 // "emp"
+    dig 3
+    dup
+    cover 2
+    concat
+    // smart_contracts/employer/contract.algo.ts:151
+    // assert(this.employees(employee).exists, 'Employee does not exist')
+    box_len
+    bury 1
+    assert // Employee does not exist
+    // smart_contracts/employer/contract.algo.ts:153
+    // mbrPay.receiver === Global.currentApplicationAddress,
+    dig 1
+    gtxns Receiver
+    global CurrentApplicationAddress
+    ==
+    // smart_contracts/employer/contract.algo.ts:152-155
+    // assert(
+    //   mbrPay.receiver === Global.currentApplicationAddress,
+    //   'MBR payment must be sent to the app',
+    // )
+    assert // MBR payment must be sent to the app
+    // smart_contracts/employer/contract.algo.ts:34
+    // algoReceivers = BoxMap<Account, Account>({ keyPrefix: 'rcv' }) // alt wallet for ALGO portion
+    bytec 5 // "rcv"
+    swap
+    concat
+    // smart_contracts/employer/contract.algo.ts:157
+    // this.algoReceivers(employee).value = receiver
+    dig 2
+    box_put
+    // smart_contracts/employer/contract.algo.ts:142-146
+    // public setAlgoReceiver(
+    //   employee: Account,
+    //   receiver: Account,
+    //   mbrPay: gtxn.PaymentTxn,
+    // ): void {
+    intc_1 // 1
+    return
+
+setAlgoReceiver_bool_false@4:
+    intc_0 // 0
+    b setAlgoReceiver_bool_merge@5
+
+
+// smart_contracts/employer/contract.algo.ts::Employer.payEmployee[routing]() -> void:
+payEmployee:
+    intc_0 // 0
+    pushbytes ""
+    dup
+    // smart_contracts/employer/contract.algo.ts:177
+    // public payEmployee(employee: Account, algoRate: uint64): void {
+    txna ApplicationArgs 1
+    dupn 2
+    len
+    intc_2 // 32
+    ==
+    assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
+    txna ApplicationArgs 2
+    dup
+    len
+    intc_3 // 8
+    ==
+    assert // invalid number of bytes for arc4.uint64
+    btoi
+    swap
+    // smart_contracts/employer/contract.algo.ts:178
+    // assert(Txn.sender === this.employer.value, 'Only employer can pay employees')
+    txn Sender
+    intc_0 // 0
+    // smart_contracts/employer/contract.algo.ts:27
+    // employer = GlobalState<Account>()
+    bytec_0 // "employer"
+    // smart_contracts/employer/contract.algo.ts:178
+    // assert(Txn.sender === this.employer.value, 'Only employer can pay employees')
+    app_global_get_ex
+    assert // check GlobalState exists
+    ==
+    assert // Only employer can pay employees
+    // smart_contracts/employer/contract.algo.ts:33
+    // employees = BoxMap<Account, EmployeeRecord>({ keyPrefix: 'emp' })
+    bytec_1 // "emp"
+    swap
+    concat
+    dupn 2
+    // smart_contracts/employer/contract.algo.ts:179
+    // assert(this.employees(employee).exists, 'Employee does not exist')
+    box_len
+    bury 1
+    assert // Employee does not exist
+    // smart_contracts/employer/contract.algo.ts:180
+    // assert(this.employees(employee).value.isActive === Uint64(1), 'Employee is not active')
+    box_get
+    pop
+    dup
+    intc_3 // 8
+    extract_uint64
+    intc_1 // 1
+    ==
+    assert // Employee is not active
+    // smart_contracts/employer/contract.algo.ts:182
+    // const salary = this.employees(employee).value.salaryUsdcMicrounits
+    dup
+    intc_0 // 0
+    extract_uint64
+    dup
+    uncover 2
+    // smart_contracts/employer/contract.algo.ts:183
+    // const usdcPct = this.employees(employee).value.usdcPercentage
+    pushint 24 // 24
+    extract_uint64
+    dup
+    cover 2
+    // smart_contracts/employer/contract.algo.ts:186
+    // const usdcAmount: uint64 = (salary * usdcPct) / Uint64(100)
+    *
+    pushint 100 // 100
+    /
+    dup
+    // smart_contracts/employer/contract.algo.ts:188
+    // if (usdcAmount > Uint64(0)) {
+    bz payEmployee_after_if_else@4
+    // smart_contracts/employer/contract.algo.ts:189-196
+    // itxn
+    //   .assetTransfer({
+    //     assetReceiver: employee,
+    //     xferAsset: this.usdcAssetId.value,
+    //     assetAmount: usdcAmount,
+    //     fee: 0,
+    //   })
+    //   .submit()
+    itxn_begin
+    // smart_contracts/employer/contract.algo.ts:192
+    // xferAsset: this.usdcAssetId.value,
+    intc_0 // 0
+    // smart_contracts/employer/contract.algo.ts:28
+    // usdcAssetId = GlobalState<Asset>()
+    bytec 4 // "usdcAssetId"
+    // smart_contracts/employer/contract.algo.ts:192
+    // xferAsset: this.usdcAssetId.value,
+    app_global_get_ex
+    assert // check GlobalState exists
+    dig 1
+    itxn_field AssetAmount
+    itxn_field XferAsset
+    dig 5
+    itxn_field AssetReceiver
+    // smart_contracts/employer/contract.algo.ts:189-195
+    // itxn
+    //   .assetTransfer({
+    //     assetReceiver: employee,
+    //     xferAsset: this.usdcAssetId.value,
+    //     assetAmount: usdcAmount,
+    //     fee: 0,
+    //   })
+    pushint 4 // 4
+    itxn_field TypeEnum
+    // smart_contracts/employer/contract.algo.ts:194
+    // fee: 0,
+    intc_0 // 0
+    itxn_field Fee
+    // smart_contracts/employer/contract.algo.ts:189-196
+    // itxn
+    //   .assetTransfer({
+    //     assetReceiver: employee,
+    //     xferAsset: this.usdcAssetId.value,
+    //     assetAmount: usdcAmount,
+    //     fee: 0,
+    //   })
+    //   .submit()
+    itxn_submit
+
+payEmployee_after_if_else@4:
+    // smart_contracts/employer/contract.algo.ts:200
+    // const algoPct: uint64 = Uint64(100) - usdcPct
+    pushint 100 // 100
+    dig 2
+    -
+    dup
+    bury 8
+    // smart_contracts/employer/contract.algo.ts:201
+    // if (algoPct > Uint64(0)) {
+    bz payEmployee_after_if_else@10
+    // smart_contracts/employer/contract.algo.ts:202
+    // assert(algoRate > Uint64(0), 'ALGO rate must be > 0 for split payments')
+    dig 4
+    dup
+    assert // ALGO rate must be > 0 for split payments
+    // smart_contracts/employer/contract.algo.ts:204
+    // const usdcForAlgo: uint64 = (salary * algoPct) / Uint64(100)
+    dig 3
+    dig 8
+    *
+    pushint 100 // 100
+    /
+    // smart_contracts/employer/contract.algo.ts:206
+    // const algoAmount: uint64 = (usdcForAlgo * algoRate) / Uint64(1_000_000)
+    *
+    pushint 1000000 // 1000000
+    /
+    bury 8
+    // smart_contracts/employer/contract.algo.ts:34
+    // algoReceivers = BoxMap<Account, Account>({ keyPrefix: 'rcv' }) // alt wallet for ALGO portion
+    bytec 5 // "rcv"
+    dig 6
+    concat
+    dup
+    bury 10
+    // smart_contracts/employer/contract.algo.ts:208
+    // const receiver = this.algoReceivers(employee).exists
+    box_len
+    bury 1
+    // smart_contracts/employer/contract.algo.ts:208-210
+    // const receiver = this.algoReceivers(employee).exists
+    //   ? this.algoReceivers(employee).value
+    //   : employee
+    bz payEmployee_ternary_false@7
+    // smart_contracts/employer/contract.algo.ts:209
+    // ? this.algoReceivers(employee).value
+    dig 8
+    box_get
+    assert // Box must have value
+
+payEmployee_ternary_merge@8:
+    // smart_contracts/employer/contract.algo.ts:212-218
+    // itxn
+    //   .payment({
+    //     receiver: receiver,
+    //     amount: algoAmount,
+    //     fee: 0,
+    //   })
+    //   .submit()
+    itxn_begin
+    dig 8
+    itxn_field Amount
+    itxn_field Receiver
+    // smart_contracts/employer/contract.algo.ts:212-217
+    // itxn
+    //   .payment({
+    //     receiver: receiver,
+    //     amount: algoAmount,
+    //     fee: 0,
+    //   })
+    intc_1 // 1
+    itxn_field TypeEnum
+    // smart_contracts/employer/contract.algo.ts:216
+    // fee: 0,
+    intc_0 // 0
+    itxn_field Fee
+    // smart_contracts/employer/contract.algo.ts:212-218
+    // itxn
+    //   .payment({
+    //     receiver: receiver,
+    //     amount: algoAmount,
+    //     fee: 0,
+    //   })
+    //   .submit()
+    itxn_submit
+
+payEmployee_after_if_else@10:
+    // smart_contracts/employer/contract.algo.ts:221
+    // this.employees(employee).value.lastPaidRound = Global.round
+    global Round
+    itob
+    dig 4
+    pushint 16 // 16
+    uncover 2
+    box_replace
+    // smart_contracts/employer/contract.algo.ts:222
+    // this.totalPayrollRuns.value = this.totalPayrollRuns.value + 1
+    intc_0 // 0
+    // smart_contracts/employer/contract.algo.ts:30
+    // totalPayrollRuns = GlobalState<uint64>({ initialValue: Uint64(0) })
+    bytec_3 // "totalPayrollRuns"
+    // smart_contracts/employer/contract.algo.ts:222
+    // this.totalPayrollRuns.value = this.totalPayrollRuns.value + 1
+    app_global_get_ex
+    assert // check GlobalState exists
+    intc_1 // 1
+    +
+    // smart_contracts/employer/contract.algo.ts:30
+    // totalPayrollRuns = GlobalState<uint64>({ initialValue: Uint64(0) })
+    bytec_3 // "totalPayrollRuns"
+    // smart_contracts/employer/contract.algo.ts:222
+    // this.totalPayrollRuns.value = this.totalPayrollRuns.value + 1
+    swap
+    app_global_put
+    // smart_contracts/employer/contract.algo.ts:177
+    // public payEmployee(employee: Account, algoRate: uint64): void {
+    intc_1 // 1
+    return
+
+payEmployee_ternary_false@7:
+    dig 5
+    b payEmployee_ternary_merge@8
+
+
+// smart_contracts/employer/contract.algo.ts::Employer.getEmployee[routing]() -> void:
+getEmployee:
+    // smart_contracts/employer/contract.algo.ts:229-230
+    // @readonly
+    // public getEmployee(employee: Account): EmployeeRecord {
+    txna ApplicationArgs 1
+    dup
+    len
+    intc_2 // 32
+    ==
+    assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
+    // smart_contracts/employer/contract.algo.ts:33
+    // employees = BoxMap<Account, EmployeeRecord>({ keyPrefix: 'emp' })
+    bytec_1 // "emp"
+    swap
+    concat
+    // smart_contracts/employer/contract.algo.ts:231
+    // assert(this.employees(employee).exists, 'Employee does not exist')
+    dup
+    box_len
+    bury 1
+    assert // Employee does not exist
+    // smart_contracts/employer/contract.algo.ts:232
     // return this.employees(employee).value
     box_get
     pop
-    // smart_contracts/employer/contract.algo.ts:134-135
+    // smart_contracts/employer/contract.algo.ts:229-230
     // @readonly
     // public getEmployee(employee: Account): EmployeeRecord {
     pushbytes 0x151f7c75
