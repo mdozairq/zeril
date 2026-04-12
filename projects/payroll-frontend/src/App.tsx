@@ -1,6 +1,18 @@
 import { SupportedWallet, WalletId, WalletManager, WalletProvider } from '@txnlab/use-wallet-react'
 import { SnackbarProvider } from 'notistack'
-import Home from './Home'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import Landing from './pages/Landing'
+import RoleSelection from './pages/RoleSelection'
+import CompanyLayout from './layouts/CompanyLayout'
+import EmployeeLayout from './layouts/EmployeeLayout'
+import Dashboard from './pages/Dashboard'
+import Employees from './pages/Employees'
+import RunPayroll from './pages/RunPayroll'
+import Settings from './pages/Settings'
+import EmployeeOverview from './pages/employee/EmployeeOverview'
+import EmployeeAllocation from './pages/employee/EmployeeAllocation'
+import EmployeeRecords from './pages/employee/EmployeeRecords'
+import { AppShell } from './Home'
 import { getAlgodConfigFromViteEnvironment, getKmdConfigFromViteEnvironment } from './utils/network/getAlgoClientConfigs'
 
 let supportedWallets: SupportedWallet[]
@@ -48,7 +60,31 @@ export default function App() {
   return (
     <SnackbarProvider maxSnack={3}>
       <WalletProvider manager={walletManager}>
-        <Home />
+        <BrowserRouter>
+          <AppShell>
+            <Routes>
+              <Route path="/" element={<Landing />} />
+              <Route path="/role-select" element={<RoleSelection />} />
+
+              <Route path="/company" element={<CompanyLayout />}>
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<Dashboard />} />
+                <Route path="employees" element={<Employees />} />
+                <Route path="payroll" element={<RunPayroll />} />
+                <Route path="settings" element={<Settings />} />
+              </Route>
+
+              <Route path="/employee" element={<EmployeeLayout />}>
+                <Route index element={<Navigate to="overview" replace />} />
+                <Route path="overview" element={<EmployeeOverview />} />
+                <Route path="allocation" element={<EmployeeAllocation />} />
+                <Route path="records" element={<EmployeeRecords />} />
+              </Route>
+
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </AppShell>
+        </BrowserRouter>
       </WalletProvider>
     </SnackbarProvider>
   )

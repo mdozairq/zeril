@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id            String         @id @default(uuid())
+  appId         String         @unique
+  name          String
+  network       String
+  treasuryAsset String         @default("USDC")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  employees     EmployeeMeta[]
+  auditLogs     AuditLog[]
+  payrollRuns   PayrollRun[]
+}
+
+model EmployeeMeta {
+  id             String   @id @default(uuid())
+  companyAppId   String
+  walletAddress  String
+  name           String
+  network        String   @default("algorand")
+  settlementType String   @default("crypto")
+  country        String?
+  kycStatus      String   @default("pending")
+  bankDetails    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  company        Company  @relation(fields: [companyAppId], references: [appId], onDelete: Cascade)
+
+  @@unique([companyAppId, walletAddress])
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  companyAppId String
+  action       String
+  actorAddress String
+  entityType   String?
+  entityId     String?
+  metadata     String?
+  createdAt    DateTime @default(now())
+  company      Company  @relation(fields: [companyAppId], references: [appId], onDelete: Cascade)
+
+  @@index([companyAppId, createdAt])
+  @@index([action])
+}
+
+model PayrollRun {
+  id              String   @id @default(uuid())
+  companyAppId    String
+  totalAmount     String
+  employeesPaid   Int
+  employeesFailed Int      @default(0)
+  algoRate        String?
+  status          String   @default("completed")
+  createdAt       DateTime @default(now())
+  company         Company  @relation(fields: [companyAppId], references: [appId], onDelete: Cascade)
+
+  @@index([companyAppId, createdAt])
+}

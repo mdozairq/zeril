@@ -1,16 +1,34 @@
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useWallet } from '@txnlab/use-wallet-react'
 import { motion } from 'framer-motion'
 import { Building2, User } from 'lucide-react'
+import { useWalletModal } from '../Home'
 
-interface RoleSelectionProps {
-  onSelectRole: (role: 'company' | 'employee') => void
-  onBack: () => void
-  selectedRole?: 'company' | 'employee' | null
-}
+const ROLE_KEY = 'zeril_role'
 
-export default function RoleSelection({ onSelectRole, onBack, selectedRole }: RoleSelectionProps) {
+export default function RoleSelection() {
+  const navigate = useNavigate()
+  const { activeAddress } = useWallet()
+  const { openWalletModal } = useWalletModal()
+  const [selectedRole, setSelectedRole] = useState<'company' | 'employee' | null>(
+    () => (localStorage.getItem(ROLE_KEY) as 'company' | 'employee') || null,
+  )
+
+  useEffect(() => {
+    if (activeAddress && selectedRole) {
+      navigate(selectedRole === 'employee' ? '/employee' : '/company')
+    }
+  }, [activeAddress, selectedRole, navigate])
+
+  const handleSelectRole = (role: 'company' | 'employee') => {
+    setSelectedRole(role)
+    localStorage.setItem(ROLE_KEY, role)
+    openWalletModal()
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6" style={{ backgroundColor: '#0A0A0A', color: '#FAFAF7' }}>
-      {/* Logo */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -51,7 +69,7 @@ export default function RoleSelection({ onSelectRole, onBack, selectedRole }: Ro
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 + i * 0.1 }}
-              onClick={() => onSelectRole(r)}
+              onClick={() => handleSelectRole(r)}
               className="group relative p-8 rounded-2xl text-left transition-all duration-300 cursor-pointer"
               style={{
                 backgroundColor: isSelected ? 'rgba(250,250,247,0.08)' : 'rgba(250,250,247,0.03)',
@@ -99,7 +117,7 @@ export default function RoleSelection({ onSelectRole, onBack, selectedRole }: Ro
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.4 }}
-        onClick={onBack}
+        onClick={() => navigate('/')}
         className="mt-8 text-[13px] font-medium transition-opacity hover:opacity-60"
         style={{ color: 'rgba(250,250,247,0.4)' }}
       >

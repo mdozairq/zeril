@@ -1,47 +1,15 @@
-import { useEffect, useState } from 'react'
-import { PayrollContractState } from '../hooks/usePayrollContract'
-import { Employee } from '../hooks/useEmployees'
+import { usePayroll } from '../contexts/PayrollContext'
 import { microUnitsToUsdc, formatUsdcDisplay } from '../utils/formatUsdc'
 import { ellipseAddress } from '../utils/ellipseAddress'
-import { AlgorandClient } from '@algorandfoundation/algokit-utils'
-import { getAlgodConfigFromViteEnvironment } from '../utils/network/getAlgoClientConfigs'
-import { loadCompany } from '../utils/companyStore'
 
-interface DashboardProps {
-  contract: PayrollContractState
-  employees: Employee[]
-  getAlgorand: () => AlgorandClient
-  usdcAssetId: bigint
-}
+const Dashboard = () => {
+  const {
+    appId, appAddress, usdcAssetId, usdcBalance, algoBalance,
+    employees, activeEmployees, totalPayroll, network, explorerBase,
+    companyName, employerAddress,
+  } = usePayroll()
 
-const Dashboard = ({ contract, employees, getAlgorand, usdcAssetId }: DashboardProps) => {
-  const [usdcBalance, setUsdcBalance] = useState<bigint>(0n)
-  const [algoBalance, setAlgoBalance] = useState<bigint>(0n)
-  const activeEmployees = employees.filter((e) => e.isActive)
   const activeCount = activeEmployees.length
-  const totalMonthlyPayroll = activeEmployees.reduce((sum, e) => sum + e.salary, 0n)
-  const network = getAlgodConfigFromViteEnvironment().network
-  const companyMeta = contract.appId ? loadCompany(contract.appId.toString()) : null
-
-  useEffect(() => {
-    if (contract.appAddress) {
-      const algorand = getAlgorand()
-      algorand.account.getInformation(contract.appAddress).then((info) => {
-        setAlgoBalance(info.balance?.microAlgo ?? 0n)
-        if (usdcAssetId > 0n) {
-          const holding = info.assets?.find((a) => a.assetId === usdcAssetId)
-          setUsdcBalance(holding?.amount ?? 0n)
-        }
-      }).catch(() => {
-        setUsdcBalance(0n)
-        setAlgoBalance(0n)
-      })
-    }
-  }, [contract.appAddress, usdcAssetId, getAlgorand])
-
-  const explorerBase = network === 'mainnet'
-    ? 'https://explorer.perawallet.app'
-    : 'https://testnet.explorer.perawallet.app'
 
   return (
     <div className="space-y-6">
@@ -52,16 +20,16 @@ const Dashboard = ({ contract, employees, getAlgorand, usdcAssetId }: DashboardP
         <div className="flex items-center justify-between mb-4">
           <div>
             <div className="text-[10px] font-mono tracking-widest uppercase" style={{ color: 'rgba(250,250,247,0.4)' }}>
-              Treasury Wallet · {network} · {companyMeta?.name || 'Zeril Payroll'}
+              Treasury Wallet · {network} · {companyName || 'Zeril Payroll'}
             </div>
           </div>
           <a
-            href={`${explorerBase}/address/${contract.appAddress}`}
+            href={`${explorerBase}/address/${appAddress}`}
             target="_blank"
             rel="noopener noreferrer"
             className="text-xs font-mono opacity-40 hover:opacity-70 transition-opacity"
           >
-            {ellipseAddress(contract.appAddress ?? '', 8)} ↗
+            {ellipseAddress(appAddress ?? '', 8)} ↗
           </a>
         </div>
 
@@ -76,10 +44,10 @@ const Dashboard = ({ contract, employees, getAlgorand, usdcAssetId }: DashboardP
           </div>
         </div>
 
-        {usdcBalance < totalMonthlyPayroll && activeCount > 0 && (
+        {usdcBalance < totalPayroll && activeCount > 0 && (
           <div className="mt-4 p-3 rounded-lg text-xs flex items-center gap-2" style={{ backgroundColor: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.2)', color: '#FBBF24' }}>
             <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-            Insufficient USDC — contract needs ${microUnitsToUsdc(totalMonthlyPayroll - usdcBalance)} more to cover payroll.
+            Insufficient USDC — contract needs ${microUnitsToUsdc(totalPayroll - usdcBalance)} more to cover payroll.
           </div>
         )}
       </div>
@@ -93,13 +61,13 @@ const Dashboard = ({ contract, employees, getAlgorand, usdcAssetId }: DashboardP
         </div>
         <div className="p-5 rounded-xl" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
           <div className="text-[10px] font-mono tracking-wider uppercase mb-2" style={{ color: 'rgba(250,250,247,0.35)' }}>Monthly Payroll</div>
-          <div className="text-3xl font-bold">{formatUsdcDisplay(totalMonthlyPayroll)}</div>
+          <div className="text-3xl font-bold">{formatUsdcDisplay(totalPayroll)}</div>
           <div className="text-xs mt-1" style={{ color: 'rgba(250,250,247,0.3)' }}>across {activeCount} employees</div>
         </div>
         <div className="p-5 rounded-xl" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
           <div className="text-[10px] font-mono tracking-wider uppercase mb-2" style={{ color: 'rgba(250,250,247,0.35)' }}>Months Covered</div>
           <div className="text-3xl font-bold">
-            {totalMonthlyPayroll > 0n ? Math.floor(Number(usdcBalance) / Number(totalMonthlyPayroll)) : '—'}
+            {totalPayroll > 0n ? Math.floor(Number(usdcBalance) / Number(totalPayroll)) : '—'}
           </div>
           <div className="text-xs mt-1" style={{ color: 'rgba(250,250,247,0.3)' }}>at current balance</div>
         </div>
@@ -112,8 +80,8 @@ const Dashboard = ({ contract, employees, getAlgorand, usdcAssetId }: DashboardP
           <div className="space-y-2 text-xs">
             <div className="flex justify-between">
               <span style={{ color: 'rgba(250,250,247,0.4)' }}>App ID</span>
-              <a href={`${explorerBase}/application/${contract.appId}`} target="_blank" rel="noopener noreferrer" className="font-mono hover:opacity-70">
-                {contract.appId?.toString()} ↗
+              <a href={`${explorerBase}/application/${appId}`} target="_blank" rel="noopener noreferrer" className="font-mono hover:opacity-70">
+                {appId?.toString()} ↗
               </a>
             </div>
             <div className="flex justify-between">
@@ -126,7 +94,7 @@ const Dashboard = ({ contract, employees, getAlgorand, usdcAssetId }: DashboardP
             </div>
             <div className="flex justify-between">
               <span style={{ color: 'rgba(250,250,247,0.4)' }}>Employer</span>
-              <span className="font-mono">{ellipseAddress(contract.employerAddress ?? '', 8)}</span>
+              <span className="font-mono">{ellipseAddress(employerAddress ?? '', 8)}</span>
             </div>
           </div>
         </div>

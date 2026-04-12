@@ -1,91 +1,80 @@
 import { useState, useEffect } from 'react'
 import { useSnackbar } from 'notistack'
-import { PayrollContractState } from '../hooks/usePayrollContract'
+import { usePayroll } from '../contexts/PayrollContext'
 import { ellipseAddress } from '../utils/ellipseAddress'
 import { saveCompany, loadCompany } from '../utils/companyStore'
-import { getAlgodConfigFromViteEnvironment } from '../utils/network/getAlgoClientConfigs'
 
-interface SettingsProps {
-  contract: PayrollContractState
-  loading: boolean
-  onDeploy: () => Promise<unknown>
-  onConnect: (appId: bigint) => Promise<unknown>
-  onInitialize: (usdcAssetId: bigint) => Promise<void>
-  onBootstrap: () => Promise<void>
-  usdcAssetId: bigint
-  appId: string
-}
-
-const Settings = ({
-  contract,
-  loading,
-  onDeploy,
-  onConnect,
-  onInitialize,
-  onBootstrap,
-  usdcAssetId,
-  appId,
-}: SettingsProps) => {
+const Settings = () => {
   const { enqueueSnackbar } = useSnackbar()
+  const {
+    appId, appAddress, isInitialized, isBootstrapped, loading,
+    usdcAssetId, network, employerAddress, appIdStr,
+    companyName, setCompanyName,
+    handleSetupCompany, handleConnectExisting,
+    initialize, bootstrap,
+  } = usePayroll()
+
   const [existingAppId, setExistingAppId] = useState('')
-  const [usdcInput, setUsdcInput] = useState(usdcAssetId > 0n ? usdcAssetId.toString() : '')
-  const [companyName, setCompanyName] = useState('')
-  const network = getAlgodConfigFromViteEnvironment().network
+  const [usdcInput, setUsdcInput] = useState(usdcAssetId > 0n ? usdcAssetId.toString() : (network === 'mainnet' ? '31566704' : '10458941'))
+  const [localCompanyName, setLocalCompanyName] = useState(companyName)
+  const [setupLoading, setSetupLoading] = useState(false)
 
   useEffect(() => {
-    if (appId) {
-      const meta = loadCompany(appId)
-      if (meta) setCompanyName(meta.name)
-    }
-  }, [appId])
+    setLocalCompanyName(companyName)
+  }, [companyName])
 
-  const hasContract = contract.appId !== null
-  const step = !hasContract ? 1 : !contract.isInitialized ? 2 : !contract.isBootstrapped ? 3 : 4
+  const hasContract = appId !== null
+  const step = !hasContract ? 1 : !isInitialized ? 2 : !isBootstrapped ? 3 : 4
 
   const handleSaveCompany = () => {
-    if (!appId || !companyName) return
-    saveCompany(appId, {
-      name: companyName,
-      appId,
+    if (!appIdStr || !localCompanyName) return
+    saveCompany(appIdStr, {
+      name: localCompanyName,
+      appId: appIdStr,
       network,
       treasuryAsset: 'USDC',
     })
+    setCompanyName(localCompanyName)
     enqueueSnackbar('Company info saved', { variant: 'success' })
   }
 
   const handleDeploy = async () => {
+    setSetupLoading(true)
     try {
-      await onDeploy()
-      enqueueSnackbar('Contract deployed! Now initialize it with a USDC asset ID.', { variant: 'success' })
-    } catch (e: unknown) {
-      enqueueSnackbar(`Deploy failed: ${e instanceof Error ? e.message : 'Unknown error'}`, { variant: 'error' })
+      await handleSetupCompany(localCompanyName || 'My Company', usdcInput)
+    } catch {
+      // Error handled in context
+    } finally {
+      setSetupLoading(false)
     }
   }
 
   const handleConnect = async () => {
+    setSetupLoading(true)
     try {
-      await onConnect(BigInt(existingAppId))
-      enqueueSnackbar('Connected to contract', { variant: 'success' })
-    } catch (e: unknown) {
-      enqueueSnackbar(`Connect failed: ${e instanceof Error ? e.message : 'Unknown error'}`, { variant: 'error' })
+      await handleConnectExisting(existingAppId)
+    } catch {
+      // Error handled in context
+    } finally {
+      setSetupLoading(false)
     }
   }
 
   const handleInitialize = async () => {
     try {
       const assetId = BigInt(usdcInput)
-      await onInitialize(assetId)
-      enqueueSnackbar('Contract initialized! Now bootstrap it to opt into USDC.', { variant: 'success' })
-    } catch (e: unknown) {
+      await initialize(assetId)
+      enqueueSnackbar('Contract initialized!', { variant: 'success' })
+    } catch (e) {
       enqueueSnackbar(`Initialize failed: ${e instanceof Error ? e.message : 'Unknown error'}`, { variant: 'error' })
     }
   }
 
   const handleBootstrap = async () => {
     try {
-      await onBootstrap()
+      await bootstrap()
       enqueueSnackbar('Contract bootstrapped! You can now use Dashboard, Employees, and Run Payroll.', { variant: 'success' })
-    } catch (e: unknown) {
+    } catch (e) {
       enqueueSnackbar(`Bootstrap failed: ${e instanceof Error ? e.message : 'Unknown error'}`, { variant: 'error' })
     }
   }
@@ -107,123 +96,144 @@ const Settings = ({
 
       {/* Company Info */}
       {hasContract && (
-        <div className="card bg-base-100 shadow">
-          <div className="card-body">
-            <h3 className="card-title text-sm">Company Info</h3>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Company Name"
-                className="input input-bordered input-sm flex-1"
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-              />
-              <button className="btn btn-sm btn-primary" onClick={handleSaveCompany} disabled={!companyName}>
-                Save
-              </button>
-            </div>
-            <div className="text-xs mt-2 space-y-1" style={{ color: 'rgba(250,250,247,0.4)' }}>
-              <div>Network: <span className="font-mono">{network}</span></div>
-              <div>Treasury Asset: <span className="font-mono">USDC</span></div>
-            </div>
+        <div className="rounded-xl p-6" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
+          <h3 className="text-sm font-semibold mb-4">Company Info</h3>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Company Name"
+              className="input input-bordered input-sm flex-1"
+              value={localCompanyName}
+              onChange={(e) => setLocalCompanyName(e.target.value)}
+            />
+            <button className="btn btn-sm btn-primary" onClick={handleSaveCompany} disabled={!localCompanyName}>
+              Save
+            </button>
+          </div>
+          <div className="text-xs mt-3 space-y-1" style={{ color: 'rgba(250,250,247,0.4)' }}>
+            <div>Network: <span className="font-mono">{network}</span></div>
+            <div>Treasury Asset: <span className="font-mono">USDC</span></div>
           </div>
         </div>
       )}
 
       {/* Current Contract Status */}
       {hasContract && (
-        <div className="card bg-base-100 shadow">
-          <div className="card-body">
-            <h3 className="card-title text-sm">Current Contract</h3>
-            <div className="text-sm space-y-1">
-              <div><span className="opacity-40">App ID:</span> {contract.appId!.toString()}</div>
-              <div><span className="opacity-40">Address:</span> <span className="font-mono text-xs">{ellipseAddress(contract.appAddress ?? '', 10)}</span></div>
-              <div className="flex gap-2 mt-2">
-                <span className={`badge badge-sm ${contract.isInitialized ? 'badge-success' : 'badge-warning'}`}>
-                  {contract.isInitialized ? 'Initialized' : 'Not Initialized'}
-                </span>
-                <span className={`badge badge-sm ${contract.isBootstrapped ? 'badge-success' : 'badge-warning'}`}>
-                  {contract.isBootstrapped ? 'Bootstrapped' : 'Not Bootstrapped'}
-                </span>
-              </div>
+        <div className="rounded-xl p-6" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
+          <h3 className="text-sm font-semibold mb-4">Current Contract</h3>
+          <div className="text-sm space-y-1">
+            <div><span className="opacity-40">App ID:</span> {appId!.toString()}</div>
+            <div><span className="opacity-40">Address:</span> <span className="font-mono text-xs">{ellipseAddress(appAddress ?? '', 10)}</span></div>
+            <div><span className="opacity-40">Employer:</span> <span className="font-mono text-xs">{ellipseAddress(employerAddress ?? '', 10)}</span></div>
+            <div className="flex gap-2 mt-2">
+              <span className={`badge badge-sm ${isInitialized ? 'badge-success' : 'badge-warning'}`}>
+                {isInitialized ? 'Initialized' : 'Not Initialized'}
+              </span>
+              <span className={`badge badge-sm ${isBootstrapped ? 'badge-success' : 'badge-warning'}`}>
+                {isBootstrapped ? 'Bootstrapped' : 'Not Bootstrapped'}
+              </span>
             </div>
           </div>
         </div>
       )}
 
       {/* Step 1: Deploy or Connect */}
-      <div className={`card bg-base-100 shadow ${step !== 1 && !hasContract ? 'opacity-50' : ''}`}>
-        <div className="card-body">
-          <h3 className="card-title text-sm">Step 1: Deploy or Connect Contract</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <p className="text-sm opacity-50 mb-2">Deploy a new payroll contract.</p>
-              <button className="btn btn-primary btn-sm" onClick={handleDeploy} disabled={loading || hasContract}>
-                {loading ? <span className="loading loading-spinner loading-xs" /> : hasContract ? 'Deployed' : 'Deploy Contract'}
-              </button>
+      <div className={`rounded-xl p-6 ${step !== 1 && !hasContract ? 'opacity-50' : ''}`} style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
+        <h3 className="text-sm font-semibold mb-4">Step 1: Deploy or Connect Contract</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <p className="text-sm opacity-50 mb-2">Deploy a new payroll contract.</p>
+            <div className="space-y-2 mb-3">
+              <input
+                type="text"
+                placeholder="Company Name"
+                className="input input-bordered input-sm w-full"
+                value={localCompanyName}
+                onChange={(e) => setLocalCompanyName(e.target.value)}
+                disabled={hasContract}
+              />
+              <input
+                type="text"
+                placeholder="USDC Asset ID"
+                className="input input-bordered input-sm w-full"
+                value={usdcInput}
+                onChange={(e) => setUsdcInput(e.target.value)}
+                disabled={hasContract}
+              />
             </div>
-            <div>
-              <p className="text-sm opacity-50 mb-2">Or connect to an existing contract.</p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="App ID"
-                  className="input input-bordered input-sm flex-1"
-                  value={existingAppId}
-                  onChange={(e) => setExistingAppId(e.target.value)}
-                />
-                <button className="btn btn-sm btn-outline" onClick={handleConnect} disabled={loading || !existingAppId}>
-                  Connect
-                </button>
-              </div>
+            <button className="btn btn-primary btn-sm" onClick={handleDeploy} disabled={loading || setupLoading || hasContract}>
+              {setupLoading ? <span className="loading loading-spinner loading-xs" /> : hasContract ? 'Deployed' : 'Deploy & Setup'}
+            </button>
+          </div>
+          <div>
+            <p className="text-sm opacity-50 mb-2">Or connect to an existing contract.</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="App ID"
+                className="input input-bordered input-sm flex-1"
+                value={existingAppId}
+                onChange={(e) => setExistingAppId(e.target.value)}
+              />
+              <button className="btn btn-sm btn-outline" onClick={handleConnect} disabled={loading || setupLoading || !existingAppId}>
+                {setupLoading ? <span className="loading loading-spinner loading-xs" /> : 'Connect'}
+              </button>
             </div>
           </div>
         </div>
       </div>
 
       {/* Step 2: Initialize */}
-      <div className={`card bg-base-100 shadow ${step < 2 ? 'opacity-50 pointer-events-none' : ''}`}>
-        <div className="card-body">
-          <h3 className="card-title text-sm">Step 2: Initialize with USDC Asset</h3>
-          <p className="text-sm opacity-50">Set the USDC asset ID. This sets you as the employer.</p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="USDC Asset ID"
-              className="input input-bordered input-sm flex-1"
-              value={usdcInput}
-              onChange={(e) => setUsdcInput(e.target.value)}
-              disabled={contract.isInitialized}
-            />
-            <button
-              className="btn btn-sm btn-primary"
-              onClick={handleInitialize}
-              disabled={loading || !usdcInput || !hasContract || contract.isInitialized}
-            >
-              {loading ? <span className="loading loading-spinner loading-xs" /> : contract.isInitialized ? 'Initialized' : 'Initialize'}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Step 3: Bootstrap */}
-      <div className={`card bg-base-100 shadow ${step < 3 ? 'opacity-50 pointer-events-none' : ''}`}>
-        <div className="card-body">
-          <h3 className="card-title text-sm">Step 3: Bootstrap (Opt into USDC)</h3>
-          <p className="text-sm opacity-50">Opt the contract into USDC ASA for payments.</p>
+      <div className={`rounded-xl p-6 ${step < 2 ? 'opacity-50 pointer-events-none' : ''}`} style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
+        <h3 className="text-sm font-semibold mb-4">Step 2: Initialize with USDC Asset</h3>
+        <p className="text-sm opacity-50 mb-3">Set the USDC asset ID. This sets you as the employer.</p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder="USDC Asset ID"
+            className="input input-bordered input-sm flex-1"
+            value={usdcInput}
+            onChange={(e) => setUsdcInput(e.target.value)}
+            disabled={isInitialized}
+          />
           <button
             className="btn btn-sm btn-primary"
-            onClick={handleBootstrap}
-            disabled={loading || !contract.isInitialized || contract.isBootstrapped}
+            onClick={handleInitialize}
+            disabled={loading || !usdcInput || !hasContract || isInitialized}
           >
-            {loading ? <span className="loading loading-spinner loading-xs" /> : contract.isBootstrapped ? 'Bootstrapped' : 'Bootstrap'}
+            {loading ? <span className="loading loading-spinner loading-xs" /> : isInitialized ? 'Initialized' : 'Initialize'}
           </button>
         </div>
       </div>
 
+      {/* Step 3: Bootstrap */}
+      <div className={`rounded-xl p-6 ${step < 3 ? 'opacity-50 pointer-events-none' : ''}`} style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
+        <h3 className="text-sm font-semibold mb-4">Step 3: Bootstrap (Opt into USDC)</h3>
+        <p className="text-sm opacity-50 mb-3">Opt the contract into USDC ASA for payments.</p>
+        <button
+          className="btn btn-sm btn-primary"
+          onClick={handleBootstrap}
+          disabled={loading || !isInitialized || isBootstrapped}
+        >
+          {loading ? <span className="loading loading-spinner loading-xs" /> : isBootstrapped ? 'Bootstrapped' : 'Bootstrap'}
+        </button>
+      </div>
+
       {step === 4 && (
-        <div className="alert alert-success">
-          Contract is fully set up! Navigate to Dashboard, Employees, or Run Payroll.
+        <div className="rounded-xl p-5 text-center" style={{ backgroundColor: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.15)' }}>
+          <div className="text-success text-sm font-semibold">Contract is fully set up!</div>
+          <p className="text-xs opacity-50 mt-1">Navigate to Dashboard, Employees, or Run Payroll from the sidebar.</p>
+        </div>
+      )}
+
+      {/* Share App ID */}
+      {hasContract && (
+        <div className="rounded-xl p-5 text-center" style={{ backgroundColor: 'rgba(250,250,247,0.02)', border: '1px dashed rgba(250,250,247,0.08)' }}>
+          <div className="text-[10px] font-mono tracking-wider uppercase mb-2" style={{ color: 'rgba(250,250,247,0.3)' }}>Share with employees</div>
+          <div className="font-mono text-lg font-bold">{appIdStr}</div>
+          <p className="text-xs mt-2" style={{ color: 'rgba(250,250,247,0.3)' }}>
+            Employees use this App ID to connect and configure their token allocation.
+          </p>
         </div>
       )}
     </div>

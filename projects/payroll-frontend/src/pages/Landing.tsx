@@ -1,3 +1,5 @@
+import { useNavigate } from 'react-router-dom'
+import { useWallet } from '@txnlab/use-wallet-react'
 import '../styles/landing.css'
 import Navbar from '../components/landing/Navbar'
 import HeroSection from '../components/landing/HeroSection'
@@ -11,10 +13,21 @@ import WhyAlgorand from '../components/landing/WhyAlgorand'
 import CTASection from '../components/landing/CTASection'
 import CinematicFooter from '../components/landing/CinematicFooter'
 
-export default function Landing({ onLaunchApp }: { onLaunchApp: () => void }) {
+export default function Landing() {
+  const navigate = useNavigate()
+  const { activeAddress } = useWallet()
+
+  const onLaunchApp = () => {
+    const savedRole = localStorage.getItem('zeril_role')
+    if (activeAddress && savedRole) {
+      navigate(savedRole === 'employee' ? '/employee' : '/company')
+    } else {
+      navigate('/role-select')
+    }
+  }
+
   return (
     <div className="landing">
-      {/* Main scrollable content */}
       <div className="relative z-10 bg-[#0A0A0A] landing-grain">
         <Navbar onLaunchApp={onLaunchApp} />
         <HeroSection onLaunchApp={onLaunchApp} />
@@ -28,7 +41,6 @@ export default function Landing({ onLaunchApp }: { onLaunchApp: () => void }) {
         <CTASection onLaunchApp={onLaunchApp} />
       </div>
 
-      {/* Cinematic footer reveals underneath as you scroll past content */}
       <CinematicFooter onLaunchApp={onLaunchApp} />
     </div>
   )

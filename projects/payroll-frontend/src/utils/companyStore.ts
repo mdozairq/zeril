@@ -1,3 +1,5 @@
+import { companyApi, employeeApi, type EmployeeMetaData } from '../services/api'
+
 const COMPANY_KEY = 'zeril_company'
 const EMPLOYEE_META_KEY = 'zeril_emp_meta'
 
@@ -15,18 +17,48 @@ export interface EmployeeMeta {
   bankDetails?: string
 }
 
+// ── Company ──
+
 export function saveCompany(appId: string, meta: CompanyMeta) {
-  const all = loadAllCompanies()
+  // Save to localStorage for instant reads
+  const all = loadAllCompaniesLocal()
   all[appId] = meta
   localStorage.setItem(COMPANY_KEY, JSON.stringify(all))
+
+  // Async persist to backend (fire-and-forget)
+  companyApi.upsert({
+    appId,
+    name: meta.name,
+    network: meta.network,
+    treasuryAsset: meta.treasuryAsset,
+  }).catch(() => {})
 }
 
 export function loadCompany(appId: string): CompanyMeta | null {
-  const all = loadAllCompanies()
+  const all = loadAllCompaniesLocal()
   return all[appId] ?? null
 }
 
-function loadAllCompanies(): Record<string, CompanyMeta> {
+export async function loadCompanyAsync(appId: string): Promise<CompanyMeta | null> {
+  try {
+    const data = await companyApi.get(appId)
+    const meta: CompanyMeta = {
+      name: data.name,
+      appId: data.appId,
+      network: data.network,
+      treasuryAsset: data.treasuryAsset,
+    }
+    // Sync to localStorage
+    const all = loadAllCompaniesLocal()
+    all[appId] = meta
+    localStorage.setItem(COMPANY_KEY, JSON.stringify(all))
+    return meta
+  } catch {
+    return loadCompany(appId)
+  }
+}
+
+function loadAllCompaniesLocal(): Record<string, CompanyMeta> {
   try {
     return JSON.parse(localStorage.getItem(COMPANY_KEY) || '{}')
   } catch {
@@ -34,11 +66,23 @@ function loadAllCompanies(): Record<string, CompanyMeta> {
   }
 }
 
+// ── Employee Meta ──
+
 export function saveEmployeeMeta(appId: string, address: string, meta: EmployeeMeta) {
+  // Save to localStorage for instant reads
   const key = `${EMPLOYEE_META_KEY}_${appId}`
   const all = loadAllEmployeeMeta(appId)
   all[address] = meta
   localStorage.setItem(key, JSON.stringify(all))
+
+  // Async persist to backend (fire-and-forget)
+  employeeApi.create(appId, {
+    walletAddress: address,
+    name: meta.name,
+    network: meta.network,
+    settlementType: meta.settlementType,
+    bankDetails: meta.bankDetails,
+  }).catch(() => {})
 }
 
 export function loadEmployeeMeta(appId: string, address: string): EmployeeMeta | null {
@@ -52,4 +96,32 @@ export function loadAllEmployeeMeta(appId: string): Record<string, EmployeeMeta>
   } catch {
     return {}
   }
+}
+
+export async function loadAllEmployeeMetaAsync(appId: string): Promise<Record<string, EmployeeMeta>> {
+  try {
+    const data = await employeeApi.list(appId)
+    const result: Record<string, EmployeeMeta> = {}
+    for (const emp of data) {
+      result[emp.walletAddress] = {
+        name: emp.name,
+        network: emp.network,
+        settlementType: emp.settlementType as 'crypto' | 'bank',
+        bankDetails: emp.bankDetails ?? undefined,
+      }
+    }
+    // Sync to localStorage
+    localStorage.setItem(`${EMPLOYEE_META_KEY}_${appId}`, JSON.stringify(result))
+    return result
+  } catch {
+    return loadAllEmployeeMeta(appId)
+  }
+}
+
+export function removeEmployeeMeta(appId: string, address: string) {
+  const all = loadAllEmployeeMeta(appId)
+  delete all[address]
+  localStorage.setItem(`${EMPLOYEE_META_KEY}_${appId}`, JSON.stringify(all))
+
+  employeeApi.remove(appId, address).catch(() => {})
 }
