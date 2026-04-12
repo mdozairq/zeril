@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSnackbar } from 'notistack'
 import { PayrollContractState } from '../hooks/usePayrollContract'
 import { ellipseAddress } from '../utils/ellipseAddress'
+import { saveCompany, loadCompany } from '../utils/companyStore'
+import { getAlgodConfigFromViteEnvironment } from '../utils/network/getAlgoClientConfigs'
 
 interface SettingsProps {
   contract: PayrollContractState
@@ -11,6 +13,7 @@ interface SettingsProps {
   onInitialize: (usdcAssetId: bigint) => Promise<void>
   onBootstrap: () => Promise<void>
   usdcAssetId: bigint
+  appId: string
 }
 
 const Settings = ({
@@ -21,13 +24,34 @@ const Settings = ({
   onInitialize,
   onBootstrap,
   usdcAssetId,
+  appId,
 }: SettingsProps) => {
   const { enqueueSnackbar } = useSnackbar()
   const [existingAppId, setExistingAppId] = useState('')
   const [usdcInput, setUsdcInput] = useState(usdcAssetId > 0n ? usdcAssetId.toString() : '')
+  const [companyName, setCompanyName] = useState('')
+  const network = getAlgodConfigFromViteEnvironment().network
+
+  useEffect(() => {
+    if (appId) {
+      const meta = loadCompany(appId)
+      if (meta) setCompanyName(meta.name)
+    }
+  }, [appId])
 
   const hasContract = contract.appId !== null
   const step = !hasContract ? 1 : !contract.isInitialized ? 2 : !contract.isBootstrapped ? 3 : 4
+
+  const handleSaveCompany = () => {
+    if (!appId || !companyName) return
+    saveCompany(appId, {
+      name: companyName,
+      appId,
+      network,
+      treasuryAsset: 'USDC',
+    })
+    enqueueSnackbar('Company info saved', { variant: 'success' })
+  }
 
   const handleDeploy = async () => {
     try {
@@ -81,14 +105,39 @@ const Settings = ({
         <li className={stepClass(4)}>Ready</li>
       </ul>
 
+      {/* Company Info */}
+      {hasContract && (
+        <div className="card bg-base-100 shadow">
+          <div className="card-body">
+            <h3 className="card-title text-sm">Company Info</h3>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Company Name"
+                className="input input-bordered input-sm flex-1"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+              />
+              <button className="btn btn-sm btn-primary" onClick={handleSaveCompany} disabled={!companyName}>
+                Save
+              </button>
+            </div>
+            <div className="text-xs mt-2 space-y-1" style={{ color: 'rgba(250,250,247,0.4)' }}>
+              <div>Network: <span className="font-mono">{network}</span></div>
+              <div>Treasury Asset: <span className="font-mono">USDC</span></div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Current Contract Status */}
       {hasContract && (
         <div className="card bg-base-100 shadow">
           <div className="card-body">
             <h3 className="card-title text-sm">Current Contract</h3>
             <div className="text-sm space-y-1">
-              <div><span className="text-base-content/60">App ID:</span> {contract.appId!.toString()}</div>
-              <div><span className="text-base-content/60">Address:</span> <span className="font-mono text-xs">{ellipseAddress(contract.appAddress ?? '', 10)}</span></div>
+              <div><span className="opacity-40">App ID:</span> {contract.appId!.toString()}</div>
+              <div><span className="opacity-40">Address:</span> <span className="font-mono text-xs">{ellipseAddress(contract.appAddress ?? '', 10)}</span></div>
               <div className="flex gap-2 mt-2">
                 <span className={`badge badge-sm ${contract.isInitialized ? 'badge-success' : 'badge-warning'}`}>
                   {contract.isInitialized ? 'Initialized' : 'Not Initialized'}
@@ -106,21 +155,15 @@ const Settings = ({
       <div className={`card bg-base-100 shadow ${step !== 1 && !hasContract ? 'opacity-50' : ''}`}>
         <div className="card-body">
           <h3 className="card-title text-sm">Step 1: Deploy or Connect Contract</h3>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <p className="text-sm text-base-content/60 mb-2">
-                Deploy a new Employer payroll contract.
-              </p>
+              <p className="text-sm opacity-50 mb-2">Deploy a new payroll contract.</p>
               <button className="btn btn-primary btn-sm" onClick={handleDeploy} disabled={loading || hasContract}>
                 {loading ? <span className="loading loading-spinner loading-xs" /> : hasContract ? 'Deployed' : 'Deploy Contract'}
               </button>
             </div>
-
             <div>
-              <p className="text-sm text-base-content/60 mb-2">
-                Or connect to an existing contract.
-              </p>
+              <p className="text-sm opacity-50 mb-2">Or connect to an existing contract.</p>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -142,9 +185,7 @@ const Settings = ({
       <div className={`card bg-base-100 shadow ${step < 2 ? 'opacity-50 pointer-events-none' : ''}`}>
         <div className="card-body">
           <h3 className="card-title text-sm">Step 2: Initialize with USDC Asset</h3>
-          <p className="text-sm text-base-content/60">
-            Set the USDC asset ID. This can only be called once and sets you as the employer.
-          </p>
+          <p className="text-sm opacity-50">Set the USDC asset ID. This sets you as the employer.</p>
           <div className="flex gap-2">
             <input
               type="text"
@@ -169,9 +210,7 @@ const Settings = ({
       <div className={`card bg-base-100 shadow ${step < 3 ? 'opacity-50 pointer-events-none' : ''}`}>
         <div className="card-body">
           <h3 className="card-title text-sm">Step 3: Bootstrap (Opt into USDC)</h3>
-          <p className="text-sm text-base-content/60">
-            Opt the contract into the USDC ASA so it can receive and send USDC payments.
-          </p>
+          <p className="text-sm opacity-50">Opt the contract into USDC ASA for payments.</p>
           <button
             className="btn btn-sm btn-primary"
             onClick={handleBootstrap}
@@ -182,10 +221,9 @@ const Settings = ({
         </div>
       </div>
 
-      {/* Ready */}
       {step === 4 && (
         <div className="alert alert-success">
-          Contract is fully set up! Navigate to Dashboard, Employees, or Run Payroll using the sidebar.
+          Contract is fully set up! Navigate to Dashboard, Employees, or Run Payroll.
         </div>
       )}
     </div>
