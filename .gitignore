@@ -14,7 +14,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -167,4 +167,8 @@ cython_debug/
 
 # NPM
 node_modules
+
+# Local Prisma SQLite databases (any package)
+**/prisma/*.db
+**/prisma/*.db-journal
 
