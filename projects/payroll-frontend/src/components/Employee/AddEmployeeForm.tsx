@@ -1,14 +1,22 @@
 import { useState } from 'react'
+import algosdk from 'algosdk'
 import { usdcToMicroUnits } from '../../utils/formatUsdc'
-import { saveEmployeeMeta } from '../../utils/companyStore'
 
 interface AddEmployeeFormProps {
-  onAdd: (address: string, salaryMicroUnits: bigint) => Promise<void>
+  onAdd: (meta: {
+    name: string
+    address: string
+    salaryMicroUnits: bigint
+    network: string
+    settlementType: 'crypto' | 'bank'
+    bankDetails?: string
+  }) => Promise<void>
   loading: boolean
-  appId: string
+  /** When false, form should not submit (contract not fully set up) */
+  canSubmit: boolean
 }
 
-const AddEmployeeForm = ({ onAdd, loading, appId }: AddEmployeeFormProps) => {
+const AddEmployeeForm = ({ onAdd, loading, canSubmit }: AddEmployeeFormProps) => {
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
   const [salary, setSalary] = useState('')
@@ -16,21 +24,26 @@ const AddEmployeeForm = ({ onAdd, loading, appId }: AddEmployeeFormProps) => {
   const [settlementType, setSettlementType] = useState<'crypto' | 'bank'>('crypto')
   const [bankDetails, setBankDetails] = useState('')
 
+  const trimmedAddress = address.trim()
+  const salaryNum = parseFloat(salary)
+  const isValid =
+    canSubmit &&
+    algosdk.isValidAddress(trimmedAddress) &&
+    Number.isFinite(salaryNum) &&
+    salaryNum > 0
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!address || !salary) return
+    if (!isValid) return
 
-    // Save employee metadata locally
-    if (appId) {
-      saveEmployeeMeta(appId, address, {
-        name: name || 'Unnamed',
-        network,
-        settlementType,
-        bankDetails: settlementType === 'bank' ? bankDetails : undefined,
-      })
-    }
-
-    await onAdd(address, usdcToMicroUnits(parseFloat(salary)))
+    await onAdd({
+      name,
+      address: trimmedAddress,
+      salaryMicroUnits: usdcToMicroUnits(salaryNum),
+      network,
+      settlementType,
+      bankDetails: settlementType === 'bank' ? bankDetails : undefined,
+    })
     setName('')
     setAddress('')
     setSalary('')
@@ -39,10 +52,13 @@ const AddEmployeeForm = ({ onAdd, loading, appId }: AddEmployeeFormProps) => {
     setBankDetails('')
   }
 
-  const isValid = address.length === 58 && parseFloat(salary) > 0
-
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
+      {!canSubmit && (
+        <p className="text-xs" style={{ color: 'rgba(248,180,83,0.9)' }}>
+          Complete Initialize and Bootstrap in Settings before adding employees on-chain.
+        </p>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div className="form-control">
           <label className="label"><span className="label-text text-xs">Employee Name</span></label>
@@ -108,7 +124,7 @@ const AddEmployeeForm = ({ onAdd, loading, appId }: AddEmployeeFormProps) => {
         </div>
       )}
 
-      <button type="submit" className={`btn btn-primary btn-sm ${!isValid ? 'btn-disabled' : ''}`} disabled={loading}>
+      <button type="submit" className="btn btn-primary btn-sm" disabled={loading || !isValid}>
         {loading ? <span className="loading loading-spinner loading-xs" /> : 'Add Employee'}
       </button>
     </form>

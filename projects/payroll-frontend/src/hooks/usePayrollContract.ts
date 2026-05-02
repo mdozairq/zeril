@@ -61,7 +61,7 @@ export function usePayrollContract() {
     usdcAssetId: 0n,
     employerAddress: null,
   })
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const autoDiscoveryDone = useRef(false)
 
   const getAlgorand = useCallback(() => {
@@ -276,6 +276,9 @@ export function usePayrollContract() {
     async (employeeAddress: string, salaryMicroUnits: bigint) => {
       if (!state.client || !activeAddress) throw new Error('Contract not deployed')
       if (!state.isInitialized) throw new Error('Contract not initialized. Go to Settings to initialize first.')
+      if (!state.isBootstrapped) {
+        throw new Error('Contract must be bootstrapped (USDC opt-in). Finish Step 3 in Settings.')
+      }
       setLoading(true)
       try {
         const algorand = getAlgorand()
@@ -288,12 +291,14 @@ export function usePayrollContract() {
         await state.client.send.addEmployee({
           args: { employee: employeeAddress, salary: salaryMicroUnits, mbrPay: mbrPayTxn },
           populateAppCallResources: true,
+          maxFee: (3000).microAlgo(),
+          coverAppCallInnerTransactionFees: true,
         })
       } finally {
         setLoading(false)
       }
     },
-    [state.client, state.isInitialized, activeAddress, getAlgorand],
+    [state.client, state.isInitialized, state.isBootstrapped, activeAddress, getAlgorand],
   )
 
   const removeEmployee = useCallback(

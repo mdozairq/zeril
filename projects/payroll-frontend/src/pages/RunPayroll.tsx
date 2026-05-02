@@ -1,23 +1,215 @@
 import { usePayroll } from '../contexts/PayrollContext'
 import { microUnitsToUsdc } from '../utils/formatUsdc'
 import { ellipseAddress } from '../utils/ellipseAddress'
+import { useEffect, useState, useCallback, useRef } from 'react'
+import { useWallet } from '@txnlab/use-wallet-react'
+import { payrollRunApi, custodyApi, companyApi, type PayrollRunData, type CustodySummary } from '../services/api'
+
+type View = 'list' | 'detail'
 
 const RunPayroll = () => {
+  const { activeAddress } = useWallet()
   const {
     activeEmployees, payableEmployees, totalPayroll, employeeMeta,
     usdcBalance, algoBalance, algoPrice, loadingPrice, fetchPrice,
     network, explorerBase,
     payrollRunning, payrollSteps, showPayrollModal, setShowPayrollModal,
     executePayroll,
+    appIdStr, companyName,
   } = usePayroll()
+
+  const [view, setView] = useState<View>('list')
+  const [runs, setRuns] = useState<PayrollRunData[]>([])
+  const [runsLoading, setRunsLoading] = useState(false)
+  const [selectedRun, setSelectedRun] = useState<PayrollRunData | null>(null)
+
+  const [newRunName, setNewRunName] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  const [custody, setCustody] = useState<CustodySummary | null>(null)
 
   const notOptedIn = activeEmployees.filter(e => !e.optedIntoUsdc)
   const hasSufficientFunds = usdcBalance >= totalPayroll
+  const accruedYield = custody ? BigInt(custody.accruedYield) : 0n
+  const effectiveUsdc = usdcBalance + accruedYield
+
+  const loadRuns = useCallback(async () => {
+    if (!appIdStr) return
+    setRunsLoading(true)
+    try {
+      const data = await payrollRunApi.list(appIdStr, 50)
+      setRuns(data)
+    } catch {
+      setRuns([])
+    } finally {
+      setRunsLoading(false)
+    }
+  }, [appIdStr])
+
+  useEffect(() => {
+    loadRuns()
+  }, [loadRuns])
+
+  useEffect(() => {
+    if (!appIdStr) return
+    custodyApi.get(appIdStr).then(setCustody).catch(() => setCustody(null))
+  }, [appIdStr])
+
+  const adminEnsuredRef = useRef(false)
+  const ensureCompanyAdmin = useCallback(async () => {
+    if (adminEnsuredRef.current || !appIdStr || !activeAddress) return
+    adminEnsuredRef.current = true
+    await companyApi.upsert({
+      appId: appIdStr,
+      name: companyName || 'Company',
+      network,
+      treasuryAsset: 'USDC',
+      adminAddress: activeAddress,
+    }).catch(() => {})
+  }, [appIdStr, activeAddress, companyName, network])
+
+  const handleCreate = async () => {
+    if (!appIdStr || !newRunName.trim()) return
+    setCreating(true)
+    try {
+      await ensureCompanyAdmin()
+      const run = await payrollRunApi.create({
+        companyAppId: appIdStr,
+        name: newRunName.trim(),
+      })
+      setRuns(prev => [run, ...prev])
+      setNewRunName('')
+      setSelectedRun(run)
+      setView('detail')
+    } catch {
+      // error handled by api.ts
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const handleProcessPayments = async () => {
+    if (!selectedRun) return
+    await executePayroll(selectedRun.id)
+    const updated = await payrollRunApi.get(selectedRun.id).catch(() => null)
+    if (updated) {
+      setSelectedRun(updated)
+      setRuns(prev => prev.map(r => r.id === updated.id ? updated : r))
+    }
+  }
+
+  const openRun = (run: PayrollRunData) => {
+    setSelectedRun(run)
+    setView('detail')
+  }
+
+  const statusBadge = (status: string) => {
+    const styles: Record<string, { bg: string; text: string }> = {
+      pending: { bg: 'rgba(251,191,36,0.1)', text: '#FBBF24' },
+      processing: { bg: 'rgba(96,165,250,0.1)', text: '#60A5FA' },
+      completed: { bg: 'rgba(74,222,128,0.1)', text: '#4ADE80' },
+      partial: { bg: 'rgba(248,113,113,0.1)', text: '#F87171' },
+    }
+    const s = styles[status] || styles.pending
+    return (
+      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono uppercase" style={{ backgroundColor: s.bg, color: s.text }}>
+        {status}
+      </span>
+    )
+  }
+
+  // ── LIST VIEW ──
+  if (view === 'list') {
+    return (
+      <div className="space-y-6">
+        <h2 className="text-2xl font-bold">Payroll</h2>
+
+        {/* Create new payroll */}
+        <div className="rounded-xl p-5" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
+          <div className="text-sm font-semibold mb-3">Create Payroll Run</div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="e.g. May 2026 Salary"
+              className="input input-bordered input-sm flex-1"
+              value={newRunName}
+              onChange={(e) => setNewRunName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              disabled={creating}
+            />
+            <button
+              onClick={handleCreate}
+              disabled={creating || !newRunName.trim() || !appIdStr}
+              className="btn btn-primary btn-sm px-6"
+            >
+              {creating ? <span className="loading loading-spinner loading-xs" /> : 'Create'}
+            </button>
+          </div>
+        </div>
+
+        {/* Payroll runs list */}
+        <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
+          <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(250,250,247,0.06)' }}>
+            <div className="text-sm font-semibold">Payroll Runs</div>
+            <div className="text-[10px] mt-0.5" style={{ color: 'rgba(250,250,247,0.4)' }}>{runs.length} run(s)</div>
+          </div>
+
+          {runsLoading ? (
+            <div className="flex justify-center py-12">
+              <span className="loading loading-spinner loading-md" />
+            </div>
+          ) : runs.length === 0 ? (
+            <div className="px-5 py-12 text-center text-xs" style={{ color: 'rgba(250,250,247,0.4)' }}>
+              No payroll runs yet. Create one above to get started.
+            </div>
+          ) : (
+            <div className="divide-y" style={{ borderColor: 'rgba(250,250,247,0.06)' }}>
+              {runs.map(run => (
+                <button
+                  key={run.id}
+                  onClick={() => openRun(run)}
+                  className="w-full px-5 py-4 flex items-center justify-between hover:bg-white/[0.02] transition-colors text-left"
+                >
+                  <div>
+                    <div className="text-sm font-medium">{run.name || 'Untitled'}</div>
+                    <div className="text-[10px] font-mono mt-0.5" style={{ color: 'rgba(250,250,247,0.4)' }}>
+                      {new Date(run.createdAt).toLocaleString()}
+                      {run.status !== 'pending' && ` · ${run.employeesPaid} paid`}
+                      {run.employeesFailed > 0 && ` · ${run.employeesFailed} failed`}
+                      {run.totalAmount !== '0' && ` · $${microUnitsToUsdc(BigInt(run.totalAmount))}`}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {statusBadge(run.status)}
+                    <span className="text-xs opacity-30">→</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── DETAIL VIEW ──
+  const canProcess = selectedRun?.status === 'pending' && payableEmployees.length > 0 && hasSufficientFunds && !payrollRunning
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold">Run Payroll</h2>
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <button onClick={() => { setView('list'); setSelectedRun(null) }} className="text-xs opacity-40 hover:opacity-70 transition-opacity">
+          ← Back
+        </button>
+        <div className="flex-1">
+          <h2 className="text-2xl font-bold">{selectedRun?.name || 'Payroll Run'}</h2>
+          <div className="text-[10px] font-mono mt-0.5" style={{ color: 'rgba(250,250,247,0.4)' }}>
+            Created {selectedRun ? new Date(selectedRun.createdAt).toLocaleString() : ''}
+            {' · '}
+            {statusBadge(selectedRun?.status || 'pending')}
+          </div>
+        </div>
         <button onClick={fetchPrice} disabled={loadingPrice} className="btn btn-ghost btn-sm text-xs">
           {loadingPrice ? <span className="loading loading-spinner loading-xs" /> : 'Fetch ALGO Price'}
         </button>
@@ -43,6 +235,11 @@ const RunPayroll = () => {
             <div className="text-lg font-bold font-mono">{algoPrice > 0 ? `$${algoPrice.toFixed(4)}` : '—'}</div>
           </div>
         </div>
+        {custody && (
+          <div className="mt-3 pt-3 text-[10px] font-mono" style={{ borderTop: '1px solid rgba(250,250,247,0.06)', color: 'rgba(250,250,247,0.3)' }}>
+            Custody yield offset: +${microUnitsToUsdc(accruedYield)} (effective USDC ${microUnitsToUsdc(effectiveUsdc)})
+          </div>
+        )}
         {algoPrice > 0 && (
           <div className="mt-3 pt-3 text-[10px] font-mono" style={{ borderTop: '1px solid rgba(250,250,247,0.06)', color: 'rgba(250,250,247,0.3)' }}>
             Tinyman {network} · 1 ALGO = ${algoPrice.toFixed(4)} USDC
@@ -54,8 +251,8 @@ const RunPayroll = () => {
       {activeEmployees.length > 0 && (
         <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
           <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(250,250,247,0.06)' }}>
-            <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>Payroll</div>
-            <div className="text-sm font-semibold">Breakdown by Allocation</div>
+            <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>Employees</div>
+            <div className="text-sm font-semibold">Payment Breakdown</div>
           </div>
           <div className="overflow-x-auto">
             <table className="table table-sm">
@@ -119,23 +316,46 @@ const RunPayroll = () => {
         </div>
       )}
 
-      {/* Execute Button */}
-      <div className="rounded-xl p-5 flex items-center justify-between" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
-        <div>
-          <div className="text-sm font-semibold">Execute Payroll</div>
-          <div className="text-xs mt-1" style={{ color: 'rgba(250,250,247,0.4)' }}>
-            {payableEmployees.length} employee(s) · ${microUnitsToUsdc(totalPayroll)} total
-            {algoPrice > 0 && ' · Tinyman rate applied'}
+      {/* Completed summary */}
+      {selectedRun && selectedRun.status !== 'pending' && selectedRun.status !== 'processing' && (
+        <div className="rounded-xl p-5" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
+          <div className="text-sm font-semibold mb-2">Result</div>
+          <div className="grid grid-cols-3 gap-4 text-xs">
+            <div>
+              <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>Total Disbursed</div>
+              <div className="font-mono font-bold">${microUnitsToUsdc(BigInt(selectedRun.totalAmount))}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>Paid</div>
+              <div className="font-mono font-bold text-success">{selectedRun.employeesPaid}</div>
+            </div>
+            <div>
+              <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>Failed</div>
+              <div className={`font-mono font-bold ${selectedRun.employeesFailed > 0 ? 'text-error' : ''}`}>{selectedRun.employeesFailed}</div>
+            </div>
           </div>
         </div>
-        <button
-          onClick={executePayroll}
-          disabled={payrollRunning || payableEmployees.length === 0 || !hasSufficientFunds}
-          className="btn btn-primary btn-sm px-6"
-        >
-          {payrollRunning ? <span className="loading loading-spinner loading-xs" /> : 'Run Payroll'}
-        </button>
-      </div>
+      )}
+
+      {/* Execute Button */}
+      {selectedRun?.status === 'pending' && (
+        <div className="rounded-xl p-5 flex items-center justify-between" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
+          <div>
+            <div className="text-sm font-semibold">Process Payments</div>
+            <div className="text-xs mt-1" style={{ color: 'rgba(250,250,247,0.4)' }}>
+              {payableEmployees.length} employee(s) · ${microUnitsToUsdc(totalPayroll)} total
+              {algoPrice > 0 && ' · Tinyman rate applied'}
+            </div>
+          </div>
+          <button
+            onClick={handleProcessPayments}
+            disabled={!canProcess}
+            className="btn btn-primary btn-sm px-6"
+          >
+            {payrollRunning ? <span className="loading loading-spinner loading-xs" /> : 'Process Payments'}
+          </button>
+        </div>
+      )}
 
       {/* Payroll Progress Modal */}
       {showPayrollModal && (
@@ -144,7 +364,7 @@ const RunPayroll = () => {
             <div className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(250,250,247,0.08)' }}>
               <div className="flex items-center gap-2">
                 <svg className="w-4 h-4" style={{ color: 'rgba(250,250,247,0.6)' }} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" /></svg>
-                <span className="text-sm font-semibold">Payroll Execution</span>
+                <span className="text-sm font-semibold">Processing: {selectedRun?.name}</span>
               </div>
               {!payrollRunning && (
                 <button onClick={() => setShowPayrollModal(false)} className="text-xs opacity-40 hover:opacity-70 transition-opacity">Close</button>

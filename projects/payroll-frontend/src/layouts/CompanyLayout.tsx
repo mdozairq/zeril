@@ -27,6 +27,8 @@ function CompanyContent() {
 
   const isReady = appId !== null && isInitialized && isBootstrapped
   const isSettingsPage = location.pathname === '/company/settings'
+  const isDashboardPage = location.pathname === '/company/dashboard'
+  const discoveryInProgress = loading && !client
 
   return (
     <div className="flex min-h-screen" style={{ backgroundColor: '#0A0A0A', color: '#FAFAF7' }}>
@@ -34,17 +36,17 @@ function CompanyContent() {
       <div className="flex-1 flex flex-col min-h-screen overflow-hidden">
         <Header />
         <main className="flex-1 p-6 overflow-y-auto">
-          {loading && !client ? (
+          {discoveryInProgress ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
                 <span className="loading loading-spinner loading-lg" />
                 <p className="mt-4 text-sm opacity-50">Discovering contract...</p>
               </div>
             </div>
-          ) : isSettingsPage ? (
+          ) : isSettingsPage || isDashboardPage ? (
             <Outlet />
           ) : !isReady ? (
-            <Navigate to="/company/settings" replace />
+            <Navigate to="/company/dashboard" replace />
           ) : (
             <Outlet />
           )}

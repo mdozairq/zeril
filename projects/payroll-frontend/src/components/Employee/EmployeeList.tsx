@@ -1,4 +1,5 @@
 import { Employee } from '../../hooks/useEmployees'
+import { useNavigate } from 'react-router-dom'
 import { ellipseAddress } from '../../utils/ellipseAddress'
 import { formatUsdcDisplay } from '../../utils/formatUsdc'
 import type { EmployeeMeta } from '../../utils/companyStore'
@@ -12,6 +13,7 @@ interface EmployeeListProps {
 }
 
 const EmployeeList = ({ employees, onRemove, loading, employeeMeta = {} }: EmployeeListProps) => {
+  const navigate = useNavigate()
   if (employees.length === 0) {
     return <div className="text-center opacity-40 py-8 text-sm">No employees added yet.</div>
   }
@@ -63,13 +65,22 @@ const EmployeeList = ({ employees, onRemove, loading, employeeMeta = {} }: Emplo
                   <td className="text-xs opacity-40">{emp.lastPaidRound > 0n ? `R${emp.lastPaidRound}` : 'Never'}</td>
                   <td>
                     {emp.isActive && (
-                      <button
-                        className="btn btn-ghost btn-xs text-error"
-                        onClick={() => onRemove(emp.address)}
-                        disabled={loading}
-                      >
-                        Remove
-                      </button>
+                      <div className="flex gap-1">
+                        <button
+                          className="btn btn-ghost btn-xs"
+                          onClick={() => navigate(`/company/kyc/${emp.address}`)}
+                          disabled={loading}
+                        >
+                          KYC
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-xs text-error"
+                          onClick={() => onRemove(emp.address)}
+                          disabled={loading}
+                        >
+                          Remove
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>

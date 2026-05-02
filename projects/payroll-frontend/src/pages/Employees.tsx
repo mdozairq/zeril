@@ -2,18 +2,32 @@ import { useSnackbar } from 'notistack'
 import { usePayroll } from '../contexts/PayrollContext'
 import AddEmployeeForm from '../components/Employee/AddEmployeeForm'
 import EmployeeList from '../components/Employee/EmployeeList'
+import { invitationApi, companyApi } from '../services/api'
+import { useWallet } from '@txnlab/use-wallet-react'
+import { useState } from 'react'
 
 const Employees = () => {
   const { enqueueSnackbar } = useSnackbar()
+  const { activeAddress } = useWallet()
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteCode, setInviteCode] = useState<string | null>(null)
   const {
     employees, employeesLoading, employeeMeta, activeEmployees,
     handleAddEmployee, handleRemoveEmployee, updateSalary,
-    refreshEmployees, appIdStr, loading,
+    refreshEmployees, appIdStr, loading, isReady,
+    companyName, network,
   } = usePayroll()
 
-  const handleAdd = async (address: string, salary: bigint) => {
+  const handleAdd = async (meta: {
+    name: string
+    address: string
+    salaryMicroUnits: bigint
+    network: string
+    settlementType: 'crypto' | 'bank'
+    bankDetails?: string
+  }) => {
     try {
-      await handleAddEmployee('', address, (Number(salary) / 1_000_000).toString())
+      await handleAddEmployee(meta)
     } catch {
       // Error already shown by context
     }
@@ -37,8 +51,54 @@ const Employees = () => {
       </div>
 
       <div className="rounded-xl p-6" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
+        <h3 className="text-sm font-semibold mb-2">Invite Employee</h3>
+        <p className="text-xs opacity-40 mb-4">Generate an invitation code (sandbox email is logged in API console).</p>
+        <div className="flex gap-2 items-center">
+          <input
+            className="input input-bordered input-sm flex-1"
+            placeholder="employee@email.com"
+            value={inviteEmail}
+            onChange={(e) => setInviteEmail(e.target.value)}
+          />
+          <button
+            className="btn btn-primary btn-sm"
+            disabled={loading || !appIdStr || !inviteEmail}
+            onClick={async () => {
+              try {
+                if (activeAddress) {
+                  await companyApi.upsert({
+                    appId: appIdStr,
+                    name: companyName || 'Company',
+                    network,
+                    treasuryAsset: 'USDC',
+                    adminAddress: activeAddress,
+                  })
+                }
+                const res = await invitationApi.create(appIdStr, { email: inviteEmail, actorAddress: activeAddress ?? undefined })
+                setInviteCode(res.inviteCode)
+                enqueueSnackbar('Invite created', { variant: 'success' })
+              } catch (e) {
+                enqueueSnackbar(e instanceof Error ? e.message : 'Failed to create invite', { variant: 'error' })
+              }
+            }}
+          >
+            Create invite
+          </button>
+        </div>
+        {inviteCode && (
+          <div className="mt-3">
+            <div className="text-xs opacity-40 mb-1">Invite code (share privately)</div>
+            <div className="font-mono text-xs p-3 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.35)', border: '1px solid rgba(250,250,247,0.06)' }}>
+              {inviteCode}
+            </div>
+            <div className="text-[10px] opacity-40 mt-2">Acceptance link: {`${window.location.origin}/invite/${inviteCode}`}</div>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl p-6" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
         <h3 className="text-sm font-semibold mb-4">Add New Employee</h3>
-        <AddEmployeeForm onAdd={handleAdd} loading={loading} appId={appIdStr} />
+        <AddEmployeeForm onAdd={handleAdd} loading={loading} canSubmit={Boolean(appIdStr && isReady)} />
       </div>
 
       <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>

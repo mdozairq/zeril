@@ -2,14 +2,47 @@ import { useWallet } from '@txnlab/use-wallet-react'
 import { useEmployee } from '../../contexts/EmployeeContext'
 import { ellipseAddress } from '../../utils/ellipseAddress'
 import { formatUsdcDisplay, microUnitsToUsdc } from '../../utils/formatUsdc'
+import { useSnackbar } from 'notistack'
+import { useState } from 'react'
+import { employeeApi } from '../../services/api'
+import EmployeeOnboardingChecklist from '../../components/Employee/EmployeeOnboardingChecklist'
+import { AlgorandClient } from '@algorandfoundation/algokit-utils'
+import { EmployerClient } from '../../contracts/Employer'
+import { getAlgodConfigFromViteEnvironment, getIndexerConfigFromViteEnvironment } from '../../utils/network/getAlgoClientConfigs'
 
 export default function EmployeeOverview() {
-  const { activeAddress } = useWallet()
+  const { enqueueSnackbar } = useSnackbar()
+  const { activeAddress, transactionSigner } = useWallet()
   const {
     salary, isActive, optedIntoUsdc, lastPaidRound,
     appId, appAddress, companyMeta,
     explorerBase, allocation, algoPrice, loadingPrice, fetchPrice, network,
   } = useEmployee()
+
+  const [receiver, setReceiver] = useState('')
+  const [savingPref, setSavingPref] = useState(false)
+  const [payoutMethod, setPayoutMethod] = useState<'crypto' | 'bank'>('crypto')
+
+  const setOnChainReceiver = async (addr: string) => {
+    if (!activeAddress || !appId) throw new Error('Not connected')
+    const algodConfig = getAlgodConfigFromViteEnvironment()
+    const indexerConfig = getIndexerConfigFromViteEnvironment()
+    const algorand = AlgorandClient.fromConfig({ algodConfig, indexerConfig })
+    algorand.setDefaultSigner(transactionSigner)
+    const client = algorand.client.getTypedAppClientById(EmployerClient, {
+      appId,
+      defaultSender: activeAddress,
+    })
+    const mbrPayTxn = await algorand.createTransaction.payment({
+      sender: activeAddress,
+      receiver: client.appAddress,
+      amount: (0.1).algo(),
+    })
+    await client.send.setAlgoReceiver({
+      args: { employee: activeAddress, receiver: addr, mbrPay: mbrPayTxn },
+      populateAppCallResources: true,
+    })
+  }
 
   return (
     <div className="space-y-6">
@@ -30,6 +63,10 @@ export default function EmployeeOverview() {
         </div>
         <div className="font-mono text-xs break-all" style={{ color: 'rgba(250,250,247,0.5)' }}>{activeAddress}</div>
       </div>
+
+      {appId !== null && (
+        <EmployeeOnboardingChecklist appId={appId} />
+      )}
 
       {/* Salary & Status Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -136,6 +173,101 @@ export default function EmployeeOverview() {
             <div className="mt-4 pt-3 text-[10px] font-mono" style={{ borderTop: '1px solid rgba(250,250,247,0.06)', color: 'rgba(250,250,247,0.3)' }}>
               ALGO/USDC: ${algoPrice.toFixed(4)} (Tinyman {network})
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Payout Preferences */}
+      {appId !== null && (
+        <div className="rounded-xl p-5" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold">Payout Preferences</h3>
+            <span className="badge badge-sm">{payoutMethod === 'bank' ? 'Bank Transfer' : 'Crypto (Algorand)'}</span>
+          </div>
+
+          <div className="flex gap-2 mb-4">
+            <button
+              className={`btn btn-sm ${payoutMethod === 'crypto' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setPayoutMethod('crypto')}
+              disabled={savingPref}
+            >
+              Crypto
+            </button>
+            <button
+              className={`btn btn-sm ${payoutMethod === 'bank' ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => setPayoutMethod('bank')}
+              disabled={savingPref}
+            >
+              Bank Transfer
+            </button>
+          </div>
+
+          {payoutMethod === 'crypto' ? (
+            <>
+              <div className="text-xs opacity-50 mb-3">
+                Set an alternate wallet to receive your ALGO portion. USDC continues to go to your connected wallet.
+              </div>
+              <div className="flex gap-2">
+                <input
+                  className="input input-bordered input-sm flex-1 font-mono"
+                  placeholder="Algorand address (optional)"
+                  value={receiver}
+                  onChange={(e) => setReceiver(e.target.value)}
+                  disabled={savingPref}
+                />
+                <button
+                  className="btn btn-primary btn-sm"
+                  disabled={savingPref || !activeAddress}
+                  onClick={async () => {
+                    if (!activeAddress) return
+                    setSavingPref(true)
+                    try {
+                      await employeeApi.setPayoutPreference(appId.toString(), activeAddress, {
+                        payoutMethod: 'crypto',
+                        cryptoNetwork: 'algorand',
+                        cryptoAddress: receiver.trim() || activeAddress,
+                      })
+                      if (receiver.trim()) {
+                        await setOnChainReceiver(receiver.trim())
+                      }
+                      enqueueSnackbar('Payout preference saved: Crypto', { variant: 'success' })
+                    } catch (e) {
+                      enqueueSnackbar(e instanceof Error ? e.message : 'Failed to save', { variant: 'error' })
+                    } finally {
+                      setSavingPref(false)
+                    }
+                  }}
+                >
+                  {savingPref ? <span className="loading loading-spinner loading-xs" /> : 'Save'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-xs opacity-50 mb-3">
+                Payments will be bridged off-chain via Wormhole + Saber to your bank account. Set up from the Off-ramp page.
+              </div>
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={savingPref || !activeAddress}
+                onClick={async () => {
+                  if (!activeAddress) return
+                  setSavingPref(true)
+                  try {
+                    await employeeApi.setPayoutPreference(appId.toString(), activeAddress, {
+                      payoutMethod: 'bank',
+                    })
+                    enqueueSnackbar('Payout preference saved: Bank transfer', { variant: 'success' })
+                  } catch (e) {
+                    enqueueSnackbar(e instanceof Error ? e.message : 'Failed to save', { variant: 'error' })
+                  } finally {
+                    setSavingPref(false)
+                  }
+                }}
+              >
+                {savingPref ? <span className="loading loading-spinner loading-xs" /> : 'Save Bank Preference'}
+              </button>
+            </>
           )}
         </div>
       )}

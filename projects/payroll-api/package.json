@@ -17,13 +17,16 @@
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "algosdk": "^3.5.2",
     "cors": "latest",
-    "express": "latest"
+    "express": "latest",
+    "jsonwebtoken": "^9.0.3"
   },
   "devDependencies": {
     "@prisma/client": "^6.19.3",
     "@types/cors": "latest",
     "@types/express": "latest",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "latest",
     "prisma": "^6.19.3",
     "tsx": "latest",

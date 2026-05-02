@@ -4,7 +4,7 @@ import { prisma } from '../db.js'
 const router = Router()
 
 router.post('/', async (req, res) => {
-  const { appId, name, network, treasuryAsset } = req.body
+  const { appId, name, network, treasuryAsset, adminAddress } = req.body
   if (!appId || !name) {
     res.status(400).json({ error: 'appId and name are required' })
     return
@@ -12,8 +12,8 @@ router.post('/', async (req, res) => {
 
   const company = await prisma.company.upsert({
     where: { appId },
-    update: { name, network, treasuryAsset },
-    create: { appId, name, network: network || 'testnet', treasuryAsset: treasuryAsset || 'USDC' },
+    update: { name, network, treasuryAsset, ...(adminAddress !== undefined && { adminAddress }) },
+    create: { appId, name, network: network || 'testnet', treasuryAsset: treasuryAsset || 'USDC', adminAddress },
   })
   res.json(company)
 })

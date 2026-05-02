@@ -8,6 +8,7 @@ export interface CompanyMeta {
   appId: string
   network: string
   treasuryAsset: string
+  adminAddress?: string
 }
 
 export interface EmployeeMeta {
@@ -31,6 +32,7 @@ export function saveCompany(appId: string, meta: CompanyMeta) {
     name: meta.name,
     network: meta.network,
     treasuryAsset: meta.treasuryAsset,
+    adminAddress: meta.adminAddress,
   }).catch(() => {})
 }
 
@@ -47,6 +49,7 @@ export async function loadCompanyAsync(appId: string): Promise<CompanyMeta | nul
       appId: data.appId,
       network: data.network,
       treasuryAsset: data.treasuryAsset,
+      adminAddress: data.adminAddress ?? undefined,
     }
     // Sync to localStorage
     const all = loadAllCompaniesLocal()

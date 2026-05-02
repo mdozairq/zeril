@@ -1,10 +1,15 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useWallet } from '@txnlab/use-wallet-react'
 import { AlgorandClient } from '@algorandfoundation/algokit-utils'
 import { EmployerClient } from '../contracts/Employer'
 import { getAlgodConfigFromViteEnvironment, getIndexerConfigFromViteEnvironment } from '../utils/network/getAlgoClientConfigs'
 import { loadCompany, type CompanyMeta } from '../utils/companyStore'
 import { loadAllocation, type AllocationConfig, getDefaultAllocation } from '../utils/tokenAllocation'
+import {
+  saveEmployeeContractAppId,
+  loadEmployeeContractAppId,
+  clearEmployeeContractAppId,
+} from '../utils/employeeContractMapping'
 
 export interface EmployeeViewState {
   appId: bigint | null
@@ -18,21 +23,31 @@ export interface EmployeeViewState {
   connected: boolean
 }
 
+const initialState: EmployeeViewState = {
+  appId: null,
+  appAddress: null,
+  salary: 0n,
+  isActive: false,
+  lastPaidRound: 0n,
+  optedIntoUsdc: false,
+  companyMeta: null,
+  allocation: null,
+  connected: false,
+}
+
 export function useEmployeeView() {
   const { transactionSigner, activeAddress } = useWallet()
-  const [state, setState] = useState<EmployeeViewState>({
-    appId: null,
-    appAddress: null,
-    salary: 0n,
-    isActive: false,
-    lastPaidRound: 0n,
-    optedIntoUsdc: false,
-    companyMeta: null,
-    allocation: null,
-    connected: false,
-  })
+  const [state, setState] = useState<EmployeeViewState>(initialState)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Incremented whenever persisted employee App ID mapping is cleared (sync appIdInput in context). */
+  const [mappingBump, setMappingBump] = useState(0)
+
+  useEffect(() => {
+    setState(initialState)
+    setError(null)
+    setMappingBump(0)
+  }, [activeAddress])
 
   const getAlgorand = useCallback(() => {
     const algodConfig = getAlgodConfigFromViteEnvironment()
@@ -42,8 +57,17 @@ export function useEmployeeView() {
     return algorand
   }, [transactionSigner])
 
+  const disconnectFromCompany = useCallback(() => {
+    if (activeAddress) clearEmployeeContractAppId(activeAddress)
+    setMappingBump((b) => b + 1)
+    setState(initialState)
+    setError(null)
+  }, [activeAddress])
+
   const connectToCompany = useCallback(async (appId: bigint) => {
     if (!activeAddress) throw new Error('Wallet not connected')
+    const appIdStr = appId.toString()
+    const stored = loadEmployeeContractAppId(activeAddress)
     setLoading(true)
     setError(null)
 
@@ -54,18 +78,15 @@ export function useEmployeeView() {
         defaultSender: activeAddress,
       })
 
-      // Read global state to get USDC asset ID
       const globalState = await client.state.global.getAll()
       const usdcAssetId = globalState.usdcAssetId ?? 0n
 
-      // Try to read this employee's record
       try {
         const record = await client.send.getEmployee({
           args: { employee: activeAddress },
           populateAppCallResources: true,
         })
 
-        // Check USDC opt-in
         let optedIn = false
         if (usdcAssetId > 0n) {
           try {
@@ -76,8 +97,8 @@ export function useEmployeeView() {
           }
         }
 
-        const companyMeta = loadCompany(appId.toString())
-        const allocation = loadAllocation(activeAddress) ?? getDefaultAllocation(appId.toString())
+        const companyMeta = loadCompany(appIdStr)
+        const allocation = loadAllocation(activeAddress) ?? getDefaultAllocation(appIdStr)
 
         setState({
           appId,
@@ -90,12 +111,21 @@ export function useEmployeeView() {
           allocation,
           connected: true,
         })
+        saveEmployeeContractAppId(activeAddress, appIdStr)
       } catch {
         setError('Your wallet address is not registered as an employee in this contract.')
         setState(prev => ({ ...prev, appId, appAddress: client.appAddress.toString(), connected: false }))
+        if (stored === appIdStr) {
+          clearEmployeeContractAppId(activeAddress)
+          setMappingBump((b) => b + 1)
+        }
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to connect to contract')
+      if (stored === appIdStr) {
+        clearEmployeeContractAppId(activeAddress)
+        setMappingBump((b) => b + 1)
+      }
     } finally {
       setLoading(false)
     }
@@ -123,7 +153,9 @@ export function useEmployeeView() {
     ...state,
     loading,
     error,
+    mappingBump,
     connectToCompany,
+    disconnectFromCompany,
     setOnChainAllocation,
     getAlgorand,
   }

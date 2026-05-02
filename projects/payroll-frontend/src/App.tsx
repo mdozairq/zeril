@@ -12,6 +12,15 @@ import Settings from './pages/Settings'
 import EmployeeOverview from './pages/employee/EmployeeOverview'
 import EmployeeAllocation from './pages/employee/EmployeeAllocation'
 import EmployeeRecords from './pages/employee/EmployeeRecords'
+import EmployeeKyc from './pages/employee/EmployeeKyc'
+import EmployeeOfframp from './pages/employee/EmployeeOfframp'
+import EmployeeLeave from './pages/employee/EmployeeLeave'
+import EmployeeKycReview from './pages/company/EmployeeKycReview'
+import InviteAccept from './pages/InviteAccept'
+import OfframpCompany from './pages/OfframpCompany'
+import FinancialReports from './pages/FinancialReports'
+import LeaveCompany from './pages/LeaveCompany'
+import AuthBootstrapper from './auth/AuthBootstrapper'
 import { AppShell } from './Home'
 import { getAlgodConfigFromViteEnvironment, getKmdConfigFromViteEnvironment } from './utils/network/getAlgoClientConfigs'
 
@@ -62,15 +71,21 @@ export default function App() {
       <WalletProvider manager={walletManager}>
         <BrowserRouter>
           <AppShell>
+            <AuthBootstrapper />
             <Routes>
               <Route path="/" element={<Landing />} />
+              <Route path="/invite/:code" element={<InviteAccept />} />
               <Route path="/role-select" element={<RoleSelection />} />
 
               <Route path="/company" element={<CompanyLayout />}>
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="employees" element={<Employees />} />
+                <Route path="kyc/:address" element={<EmployeeKycReview />} />
                 <Route path="payroll" element={<RunPayroll />} />
+                <Route path="offramp" element={<OfframpCompany />} />
+                <Route path="reports" element={<FinancialReports />} />
+                <Route path="leave" element={<LeaveCompany />} />
                 <Route path="settings" element={<Settings />} />
               </Route>
 
@@ -79,6 +94,9 @@ export default function App() {
                 <Route path="overview" element={<EmployeeOverview />} />
                 <Route path="allocation" element={<EmployeeAllocation />} />
                 <Route path="records" element={<EmployeeRecords />} />
+                <Route path="kyc" element={<EmployeeKyc />} />
+                <Route path="offramp" element={<EmployeeOfframp />} />
+                <Route path="leave" element={<EmployeeLeave />} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

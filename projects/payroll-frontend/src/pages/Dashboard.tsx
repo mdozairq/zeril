@@ -1,19 +1,42 @@
+import { useNavigate } from 'react-router-dom'
 import { usePayroll } from '../contexts/PayrollContext'
 import { microUnitsToUsdc, formatUsdcDisplay } from '../utils/formatUsdc'
 import { ellipseAddress } from '../utils/ellipseAddress'
+import CustodyWidget from '../components/Treasury/CustodyWidget'
 
 const Dashboard = () => {
+  const navigate = useNavigate()
   const {
     appId, appAddress, usdcAssetId, usdcBalance, algoBalance,
     employees, activeEmployees, totalPayroll, network, explorerBase,
-    companyName, employerAddress,
+    companyName, employerAddress, isInitialized, isBootstrapped,
   } = usePayroll()
 
   const activeCount = activeEmployees.length
+  const isReady = appId !== null && isInitialized && isBootstrapped
 
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">Dashboard</h2>
+
+      {!isReady && (
+        <div className="rounded-xl p-6" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
+          <h3 className="text-lg font-semibold mb-2">Complete Setup</h3>
+          <p className="text-xs mb-4" style={{ color: 'rgba(250,250,247,0.5)' }}>
+            {!appId
+              ? 'Deploy or connect to a payroll smart contract to get started.'
+              : !isInitialized
+                ? 'Initialize your contract with a USDC asset ID.'
+                : 'Bootstrap your contract to opt into USDC.'}
+          </p>
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={() => navigate('/company/settings')}
+          >
+            Go to Settings
+          </button>
+        </div>
+      )}
 
       {/* Treasury Wallet Card */}
       <div className="rounded-xl p-6" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
@@ -136,6 +159,10 @@ const Dashboard = () => {
             <p className="text-xs opacity-30 py-4">No active employees yet.</p>
           )}
         </div>
+
+        {appId !== null && (
+          <CustodyWidget appId={appId.toString()} />
+        )}
       </div>
     </div>
   )

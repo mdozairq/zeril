@@ -13,6 +13,7 @@ model Company {
   name          String
   network       String
   treasuryAsset String         @default("USDC")
+  adminAddress  String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   employees     EmployeeMeta[]
@@ -24,17 +25,205 @@ model EmployeeMeta {
   id             String   @id @default(uuid())
   companyAppId   String
   walletAddress  String
+  email          String?
   name           String
   network        String   @default("algorand")
   settlementType String   @default("crypto")
   country        String?
   kycStatus      String   @default("pending")
   bankDetails    String?
+  payoutMethod   String?  // crypto | bank
+  cryptoAddress  String?
+  cryptoNetwork  String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   company        Company  @relation(fields: [companyAppId], references: [appId], onDelete: Cascade)
+  kycCases       KycCase[]
 
   @@unique([companyAppId, walletAddress])
+}
+
+model Invitation {
+  id                   String   @id @default(uuid())
+  companyAppId         String
+  email                String
+  codeHash             String   @unique
+  expiresAt            DateTime
+  acceptedAt           DateTime?
+  employeeWalletAddress String?
+  createdAt            DateTime @default(now())
+
+  @@index([companyAppId, createdAt])
+  @@index([email])
+}
+
+model OnboardingChecklistItem {
+  id           String   @id @default(uuid())
+  companyAppId String
+  key          String
+  title        String
+  sortOrder    Int      @default(0)
+  isRequired   Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([companyAppId, key])
+  @@index([companyAppId, sortOrder])
+}
+
+model EmployeeOnboardingStatus {
+  id            String   @id @default(uuid())
+  companyAppId  String
+  walletAddress String
+  itemKey       String
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([companyAppId, walletAddress, itemKey])
+  @@index([companyAppId, walletAddress])
+}
+
+model KycCase {
+  id            String        @id @default(uuid())
+  companyAppId  String
+  employeeId    String
+  status        String        @default("draft") // draft | submitted | approved | rejected
+  nationality   String?
+  submittedAt   DateTime?
+  reviewedAt    DateTime?
+  reviewer      String?
+  rejectionNote String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  employee      EmployeeMeta  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  documents     KycDocument[]
+
+  @@index([companyAppId, status])
+  @@index([employeeId, createdAt])
+}
+
+model KycDocument {
+  id         String   @id @default(uuid())
+  caseId     String
+  docType    String
+  sha256     String
+  country    String?
+  issuedAt   DateTime?
+  expiresAt  DateTime?
+  reference  String?
+  createdAt  DateTime @default(now())
+
+  kycCase    KycCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@unique([caseId, sha256])
+}
+
+model ComplianceDocument {
+  id          String   @id @default(uuid())
+  key         String
+  title       String
+  version     Int
+  contentMd   String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([key, version])
+  @@index([key, isActive])
+}
+
+model OfframpRequest {
+  id                   String   @id @default(uuid())
+  companyAppId          String
+  employeeWalletAddress String
+  amountUsdcMicrounits  String
+  status               String   @default("created") // created | bridging | offramp_pending | completed | failed
+  provider             String   @default("wormhole+saber")
+  idempotencyKey       String   @unique
+  bridgeRef            String?
+  offrampRef           String?
+  retries              Int      @default(0)
+  lastError            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([companyAppId, createdAt])
+  @@index([employeeWalletAddress, createdAt])
+  @@index([status])
+}
+
+model CustodyEvent {
+  id            String   @id @default(uuid())
+  companyAppId  String
+  type          String   // deposit | withdraw
+  amountUsdcMicrounits String
+  idempotencyKey String  @unique
+  createdAt     DateTime @default(now())
+
+  @@index([companyAppId, createdAt])
+  @@index([type])
+}
+
+model ExpenseEvent {
+  id            String   @id @default(uuid())
+  companyAppId  String
+  type          String   // tax | fee | adjustment | other
+  amountUsdcMicrounits String
+  note          String?
+  createdAt     DateTime @default(now())
+
+  @@index([companyAppId, createdAt])
+  @@index([type])
+}
+
+model LeaveType {
+  id           String   @id @default(uuid())
+  companyAppId String
+  key          String
+  name         String
+  isPaid       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([companyAppId, key])
+  @@index([companyAppId])
+}
+
+model LeaveAllocation {
+  id            String   @id @default(uuid())
+  companyAppId  String
+  walletAddress String
+  fiscalYear    String
+  daysAllocated Int
+  carryForward  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([companyAppId, walletAddress, fiscalYear])
+  @@index([companyAppId, fiscalYear])
+  @@index([walletAddress])
+}
+
+model LeaveRequest {
+  id            String   @id @default(uuid())
+  companyAppId  String
+  walletAddress String
+  leaveTypeKey  String
+  startDate     DateTime
+  endDate       DateTime
+  days          Int
+  status        String   @default("pending") // pending | approved | rejected
+  note          String?
+  reviewer      String?
+  reviewedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([companyAppId, status, createdAt])
+  @@index([walletAddress, createdAt])
 }
 
 model AuditLog {
@@ -55,11 +244,12 @@ model AuditLog {
 model PayrollRun {
   id              String   @id @default(uuid())
   companyAppId    String
-  totalAmount     String
-  employeesPaid   Int
+  name            String   @default("")
+  totalAmount     String   @default("0")
+  employeesPaid   Int      @default(0)
   employeesFailed Int      @default(0)
   algoRate        String?
-  status          String   @default("completed")
+  status          String   @default("pending")
   createdAt       DateTime @default(now())
   company         Company  @relation(fields: [companyAppId], references: [appId], onDelete: Cascade)
 

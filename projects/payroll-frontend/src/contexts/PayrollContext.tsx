@@ -8,7 +8,7 @@ import { loadAllEmployeeMeta, loadAllEmployeeMetaAsync, saveCompany, loadCompany
 import { microUnitsToUsdc, usdcToMicroUnits } from '../utils/formatUsdc'
 import { getAlgoUsdcPrice } from '../utils/tinyman'
 import { ellipseAddress } from '../utils/ellipseAddress'
-import { auditApi, payrollRunApi } from '../services/api'
+import { auditApi, payrollRunApi, companyApi, employeeApi } from '../services/api'
 
 interface PayrollStep {
   id: string
@@ -24,6 +24,8 @@ interface PayrollContextType {
   appAddress: string | null
   isInitialized: boolean
   isBootstrapped: boolean
+  /** Contract deployed, initialized, and bootstrapped — required to add employees and run payroll */
+  isReady: boolean
   isAdmin: boolean
   loading: boolean
   client: unknown
@@ -75,7 +77,14 @@ interface PayrollContextType {
   handleConnectExisting: (existingAppId: string) => Promise<void>
 
   // Add employee helpers
-  handleAddEmployee: (name: string, address: string, salary: string) => Promise<void>
+  handleAddEmployee: (meta: {
+    name: string
+    address: string
+    salaryMicroUnits: bigint
+    network: string
+    settlementType: 'crypto' | 'bank'
+    bankDetails?: string
+  }) => Promise<void>
   handleRemoveEmployee: (address: string) => Promise<void>
 
   // Payroll execution
@@ -83,7 +92,7 @@ interface PayrollContextType {
   payrollSteps: PayrollStep[]
   showPayrollModal: boolean
   setShowPayrollModal: (show: boolean) => void
-  executePayroll: () => Promise<void>
+  executePayroll: (runId: string) => Promise<void>
 
   // Treasury refresh
   refreshTreasury: () => void
@@ -135,7 +144,8 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
     ? 'https://explorer.perawallet.app'
     : 'https://testnet.explorer.perawallet.app'
 
-  const isReady = payroll.appId !== null && payroll.isInitialized && payroll.isBootstrapped
+  const isReady =
+    payroll.appId !== null && payroll.isInitialized && payroll.isBootstrapped
   const appIdStr = payroll.appId?.toString() ?? ''
   const employeeMeta = loadAllEmployeeMeta(appIdStr)
   const activeEmployees = employees.filter(e => e.isActive)
@@ -151,6 +161,18 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
       loadAllEmployeeMetaAsync(appIdStr).catch(() => {})
     }
   }, [appIdStr])
+
+  // Ensure backend knows the company admin (needed for protected admin actions)
+  useEffect(() => {
+    if (!appIdStr || !activeAddress || !payroll.isAdmin) return
+    companyApi.upsert({
+      appId: appIdStr,
+      name: companyName || 'Company',
+      network,
+      treasuryAsset: 'USDC',
+      adminAddress: activeAddress,
+    }).catch(() => {})
+  }, [appIdStr, activeAddress, payroll.isAdmin, companyName, network])
 
   const refreshTreasury = useCallback(() => {
     if (!payroll.appAddress || !isReady) return
@@ -194,6 +216,7 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
         appId: newAppId,
         network,
         treasuryAsset: 'USDC',
+        adminAddress: activeAddress ?? undefined,
       })
       setCompanyName(name.trim())
 
@@ -232,17 +255,43 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const handleAddEmployee = async (name: string, address: string, salary: string) => {
-    if (!address || !salary) return
+  const handleAddEmployee = async (meta: {
+    name: string
+    address: string
+    salaryMicroUnits: bigint
+    network: string
+    settlementType: 'crypto' | 'bank'
+    bankDetails?: string
+  }) => {
+    const { name, address, salaryMicroUnits, network, settlementType, bankDetails } = meta
+    if (!address || salaryMicroUnits <= 0n) return
+    if (!payroll.isInitialized || !payroll.isBootstrapped) {
+      enqueueSnackbar('Finish Initialize and Bootstrap in Settings before adding employees.', { variant: 'error' })
+      return
+    }
     try {
       if (appIdStr) {
         saveEmployeeMeta(appIdStr, address, {
           name: name || 'Unnamed',
-          network: 'algorand',
-          settlementType: 'crypto',
+          network,
+          settlementType,
+          bankDetails: settlementType === 'bank' ? bankDetails : undefined,
         })
       }
-      await payroll.addEmployee(address, usdcToMicroUnits(parseFloat(salary)))
+      await payroll.addEmployee(address, salaryMicroUnits)
+
+      if (appIdStr) {
+        await employeeApi
+          .create(appIdStr, {
+            walletAddress: address,
+            name: name || 'Unnamed',
+            network,
+            settlementType,
+            ...(settlementType === 'bank' && bankDetails ? { bankDetails } : {}),
+          })
+          .catch(() => {})
+      }
+
       enqueueSnackbar(`${name || 'Employee'} added to payroll`, { variant: 'success' })
       refreshEmployees()
 
@@ -253,7 +302,7 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
           actorAddress: activeAddress,
           entityType: 'employee',
           entityId: address,
-          metadata: { name, salary },
+          metadata: { name, salaryMicroUnits: salaryMicroUnits.toString() },
         }).catch(() => {})
       }
     } catch (e) {
@@ -266,6 +315,9 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
     try {
       await payroll.removeEmployee(address)
       if (appIdStr) removeEmployeeMeta(appIdStr, address)
+      if (appIdStr) {
+        await employeeApi.remove(appIdStr, address).catch(() => {})
+      }
       enqueueSnackbar('Employee removed', { variant: 'success' })
       refreshEmployees()
 
@@ -288,7 +340,7 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
     setPayrollSteps(prev => prev.map(s => s.id === id ? { ...s, ...u } : s))
   }
 
-  const executePayroll = async () => {
+  const executePayroll = async (runId: string) => {
     setShowPayrollModal(true)
     setPayrollRunning(true)
 
@@ -305,6 +357,8 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
       }))
     ]
     setPayrollSteps(initial)
+
+    payrollRunApi.update(runId, { status: 'processing' }).catch(() => {})
 
     let paid = 0, failed = 0
     for (const emp of payableEmployees) {
@@ -332,21 +386,22 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
     refreshEmployees()
     refreshTreasury()
 
-    if (appIdStr && activeAddress) {
-      payrollRunApi.create({
-        companyAppId: appIdStr,
-        totalAmount: totalPayroll.toString(),
-        employeesPaid: paid,
-        employeesFailed: failed,
-        algoRate: algoRate.toString(),
-        status: failed === 0 ? 'completed' : 'partial',
-      }).catch(() => {})
+    const finalStatus = failed === 0 ? 'completed' : 'partial'
+    payrollRunApi.update(runId, {
+      totalAmount: totalPayroll.toString(),
+      employeesPaid: paid,
+      employeesFailed: failed,
+      algoRate: algoRate.toString(),
+      status: finalStatus,
+    }).catch(() => {})
 
+    if (appIdStr && activeAddress) {
       auditApi.create({
         companyAppId: appIdStr,
         action: 'payroll_executed',
         actorAddress: activeAddress,
         entityType: 'payroll_run',
+        entityId: runId,
         metadata: { paid, failed, totalPayroll: totalPayroll.toString(), algoRate: algoRate.toString() },
       }).catch(() => {})
     }
@@ -357,6 +412,7 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
     appAddress: payroll.appAddress,
     isInitialized: payroll.isInitialized,
     isBootstrapped: payroll.isBootstrapped,
+    isReady,
     isAdmin: payroll.isAdmin,
     loading: payroll.loading,
     client: payroll.client,
