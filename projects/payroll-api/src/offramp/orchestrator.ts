@@ -2,6 +2,17 @@ import { prisma } from '../db.js'
 import { wormholeBridgeSandbox } from './wormholeClient.js'
 import { saberOfframpSandbox } from './saberClient.js'
 
+export async function getEmployeeBankDetails(companyAppId: string, walletAddress: string) {
+  const emp = await prisma.employeeMeta.findUnique({
+    where: { companyAppId_walletAddress: { companyAppId, walletAddress } },
+  })
+  if (!emp) return null
+  if (emp.bankDetailsJson) {
+    try { return JSON.parse(emp.bankDetailsJson) as Record<string, string> } catch { /* ignore */ }
+  }
+  return null
+}
+
 export async function runOfframpOrchestrator(requestId: string) {
   const req = await prisma.offrampRequest.findUnique({ where: { id: requestId } })
   if (!req) throw new Error('OfframpRequest not found')

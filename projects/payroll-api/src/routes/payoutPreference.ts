@@ -6,10 +6,11 @@ const router = Router()
 
 router.put('/companies/:appId/employees/:address/payout-preference', async (req, res) => {
   const { appId, address } = req.params
-  const { payoutMethod, cryptoAddress, cryptoNetwork } = req.body as {
+  const { payoutMethod, cryptoAddress, cryptoNetwork, bankDetailsJson } = req.body as {
     payoutMethod?: 'crypto' | 'bank'
     cryptoAddress?: string
     cryptoNetwork?: string
+    bankDetailsJson?: string
   }
 
   const employee = await prisma.employeeMeta.findUnique({
@@ -43,6 +44,7 @@ router.put('/companies/:appId/employees/:address/payout-preference', async (req,
       ...(payoutMethod !== undefined && { payoutMethod }),
       ...(cryptoAddress !== undefined && { cryptoAddress }),
       ...(cryptoNetwork !== undefined && { cryptoNetwork }),
+      ...(bankDetailsJson !== undefined && { bankDetailsJson }),
     },
   })
 

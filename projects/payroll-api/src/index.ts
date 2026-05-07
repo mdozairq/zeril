@@ -12,6 +12,7 @@ import custodyRouter from './routes/custody.js'
 import reportsRouter from './routes/reports.js'
 import leaveRouter from './routes/leave.js'
 import authRouter from './routes/auth.js'
+import taxRouter from './routes/tax.js'
 import { authOptional } from './middleware/auth.js'
 import { prisma } from './db.js'
 
@@ -41,6 +42,7 @@ app.use('/api', custodyRouter)
 app.use('/api', reportsRouter)
 app.use('/api', leaveRouter)
 app.use('/api', authRouter)
+app.use('/api', taxRouter)
 
 app.listen(PORT, () => {
   console.log(`Payroll API running on http://localhost:${PORT}`)

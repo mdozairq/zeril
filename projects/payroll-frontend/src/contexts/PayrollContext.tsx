@@ -8,7 +8,7 @@ import { loadAllEmployeeMeta, loadAllEmployeeMetaAsync, saveCompany, loadCompany
 import { microUnitsToUsdc, usdcToMicroUnits } from '../utils/formatUsdc'
 import { getAlgoUsdcPrice } from '../utils/tinyman'
 import { ellipseAddress } from '../utils/ellipseAddress'
-import { auditApi, payrollRunApi, companyApi, employeeApi } from '../services/api'
+import { auditApi, payrollRunApi, companyApi, employeeApi, paymentApi, taxApi, invitationApi } from '../services/api'
 
 interface PayrollStep {
   id: string
@@ -84,7 +84,10 @@ interface PayrollContextType {
     network: string
     settlementType: 'crypto' | 'bank'
     bankDetails?: string
-  }) => Promise<void>
+    country?: string
+    email: string
+    phone?: string
+  }) => Promise<string | undefined>
   handleRemoveEmployee: (address: string) => Promise<void>
 
   // Payroll execution
@@ -92,7 +95,7 @@ interface PayrollContextType {
   payrollSteps: PayrollStep[]
   showPayrollModal: boolean
   setShowPayrollModal: (show: boolean) => void
-  executePayroll: (runId: string) => Promise<void>
+  executePayroll: (runId: string, selectedAddresses?: string[]) => Promise<void>
 
   // Treasury refresh
   refreshTreasury: () => void
@@ -262,12 +265,15 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
     network: string
     settlementType: 'crypto' | 'bank'
     bankDetails?: string
-  }) => {
-    const { name, address, salaryMicroUnits, network, settlementType, bankDetails } = meta
-    if (!address || salaryMicroUnits <= 0n) return
+    country?: string
+    email: string
+    phone?: string
+  }): Promise<string | undefined> => {
+    const { name, address, salaryMicroUnits, network, settlementType, bankDetails, country, email, phone } = meta
+    if (!address || salaryMicroUnits <= 0n) return undefined
     if (!payroll.isInitialized || !payroll.isBootstrapped) {
       enqueueSnackbar('Finish Initialize and Bootstrap in Settings before adding employees.', { variant: 'error' })
-      return
+      return undefined
     }
     try {
       if (appIdStr) {
@@ -288,8 +294,24 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
             network,
             settlementType,
             ...(settlementType === 'bank' && bankDetails ? { bankDetails } : {}),
+            ...(country ? { country } : {}),
+            ...(email ? { email } : {}),
+            ...(phone ? { phone } : {}),
           })
           .catch(() => {})
+      }
+
+      let inviteCode: string | undefined
+      if (appIdStr && email) {
+        try {
+          const inv = await invitationApi.create(appIdStr, {
+            email,
+            actorAddress: activeAddress ?? undefined,
+          })
+          inviteCode = inv.inviteCode
+        } catch {
+          // invite creation is best-effort
+        }
       }
 
       enqueueSnackbar(`${name || 'Employee'} added to payroll`, { variant: 'success' })
@@ -305,6 +327,8 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
           metadata: { name, salaryMicroUnits: salaryMicroUnits.toString() },
         }).catch(() => {})
       }
+
+      return inviteCode
     } catch (e) {
       enqueueSnackbar(`Failed: ${e instanceof Error ? e.message : 'Unknown'}`, { variant: 'error' })
       throw e
@@ -340,16 +364,35 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
     setPayrollSteps(prev => prev.map(s => s.id === id ? { ...s, ...u } : s))
   }
 
-  const executePayroll = async (runId: string) => {
+  const executePayroll = async (runId: string, selectedAddresses?: string[]) => {
     setShowPayrollModal(true)
     setPayrollRunning(true)
 
     let algoRate = 1_000_000n
     if (algoPrice > 0) algoRate = BigInt(Math.round((1 / algoPrice) * 1_000_000))
 
+    // Fetch employee metadata for KYC gating and tax calculations
+    let empMetaList: Awaited<ReturnType<typeof employeeApi.list>> = []
+    try {
+      if (appIdStr) empMetaList = await employeeApi.list(appIdStr)
+    } catch { /* continue without metadata */ }
+    const empMetaMap = new Map(empMetaList.map(e => [e.walletAddress, e]))
+
+    // Filter: only KYC-approved, USDC-opted-in, active employees
+    let eligibleEmployees = payableEmployees.filter(emp => {
+      const dbMeta = empMetaMap.get(emp.address)
+      return dbMeta?.kycStatus === 'approved'
+    })
+
+    // Further filter by selected addresses if provided
+    if (selectedAddresses) {
+      const selected = new Set(selectedAddresses)
+      eligibleEmployees = eligibleEmployees.filter(emp => selected.has(emp.address))
+    }
+
     const initial: PayrollStep[] = [
-      { id: 'preflight', label: `Preflight — ${payableEmployees.length} employee(s)${algoPrice > 0 ? `, $${algoPrice.toFixed(4)}/ALGO` : ''}`, status: 'done' },
-      ...payableEmployees.map(emp => ({
+      { id: 'preflight', label: `Preflight — ${eligibleEmployees.length} employee(s)${algoPrice > 0 ? `, $${algoPrice.toFixed(4)}/ALGO` : ''}`, status: 'done' },
+      ...eligibleEmployees.map(emp => ({
         id: `pay_${emp.address}`,
         label: `${employeeMeta[emp.address]?.name || ellipseAddress(emp.address, 6)} — $${microUnitsToUsdc(emp.salary)}`,
         status: 'pending' as const,
@@ -361,13 +404,36 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
     payrollRunApi.update(runId, { status: 'processing' }).catch(() => {})
 
     let paid = 0, failed = 0
-    for (const emp of payableEmployees) {
+    for (const emp of eligibleEmployees) {
       const sid = `pay_${emp.address}`
       const name = employeeMeta[emp.address]?.name || ellipseAddress(emp.address, 6)
+      const meta = empMetaMap.get(emp.address)
+      const countryCode = meta?.country || undefined
+      const salaryUsd = Number(emp.salary) / 1_000_000
+
       updateStep(sid, { status: 'running', label: `Paying ${name}...` })
       try {
         await payroll.payEmployee(emp.address, algoRate)
-        updateStep(sid, { status: 'done', label: `${name} — $${microUnitsToUsdc(emp.salary)} sent` })
+
+        // Create off-chain Payment record with tax breakdown
+        if (appIdStr) {
+          try {
+            const tax = await taxApi.calculate({ amountUsd: salaryUsd, countryCode })
+            await paymentApi.create(runId, {
+              employeeAddress: emp.address,
+              grossAmount: salaryUsd,
+              countryCode,
+            })
+            updateStep(sid, {
+              status: 'done',
+              label: `${name} — $${microUnitsToUsdc(emp.salary)} sent (tax: $${tax.totalTax.toFixed(2)})`,
+            })
+          } catch {
+            updateStep(sid, { status: 'done', label: `${name} — $${microUnitsToUsdc(emp.salary)} sent` })
+          }
+        } else {
+          updateStep(sid, { status: 'done', label: `${name} — $${microUnitsToUsdc(emp.salary)} sent` })
+        }
         paid++
       } catch (e) {
         updateStep(sid, { status: 'error', label: `${name} — failed`, error: (e instanceof Error ? e.message : 'Unknown').slice(0, 100) })
@@ -386,9 +452,10 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
     refreshEmployees()
     refreshTreasury()
 
+    const actualTotal = eligibleEmployees.reduce((sum, e) => sum + e.salary, 0n)
     const finalStatus = failed === 0 ? 'completed' : 'partial'
     payrollRunApi.update(runId, {
-      totalAmount: totalPayroll.toString(),
+      totalAmount: actualTotal.toString(),
       employeesPaid: paid,
       employeesFailed: failed,
       algoRate: algoRate.toString(),

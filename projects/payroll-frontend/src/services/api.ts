@@ -102,12 +102,15 @@ export interface EmployeeMetaData {
   id: string
   companyAppId: string
   walletAddress: string
+  email: string | null
+  phone: string | null
   name: string
   network: string
   settlementType: string
   country: string | null
   kycStatus: string
   bankDetails: string | null
+  bankDetailsJson: string | null
   payoutMethod: string | null
   cryptoAddress: string | null
   cryptoNetwork: string | null
@@ -122,6 +125,8 @@ export interface EmployeeMetaInput {
   settlementType?: string
   country?: string
   bankDetails?: string
+  email?: string
+  phone?: string
 }
 
 // ── KYC types ──
@@ -137,6 +142,8 @@ export interface KycDocumentData {
   issuedAt: string | null
   expiresAt: string | null
   reference: string | null
+  pinataCid: string | null
+  fileUrl: string | null
   createdAt: string
 }
 
@@ -162,6 +169,8 @@ export interface KycDocInput {
   issuedAt?: string
   expiresAt?: string
   reference?: string
+  pinataCid?: string
+  fileUrl?: string
 }
 
 export interface KycUpsertInput {
@@ -274,7 +283,7 @@ export const employeeApi = {
   setPayoutPreference: (
     appId: string,
     address: string,
-    data: { payoutMethod: 'crypto' | 'bank'; cryptoAddress?: string; cryptoNetwork?: string },
+    data: { payoutMethod: 'crypto' | 'bank'; cryptoAddress?: string; cryptoNetwork?: string; bankDetailsJson?: string },
   ) =>
     request<EmployeeMetaData>(`/api/companies/${appId}/employees/${address}/payout-preference`, {
       method: 'PUT',
@@ -380,12 +389,25 @@ export interface OnboardingItem {
   completedAt: string | null
 }
 
+export interface InvitationListItem {
+  id: string
+  email: string
+  code: string | null
+  expiresAt: string
+  acceptedAt: string | null
+  employeeWalletAddress: string | null
+  createdAt: string
+}
+
 export const invitationApi = {
   create: (appId: string, data: { email: string; expiresInDays?: number; actorAddress?: string }) =>
     request<InvitationCreateResponse>(`/api/companies/${appId}/invitations`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  list: (appId: string) =>
+    request<InvitationListItem[]>(`/api/companies/${appId}/invitations`),
 
   get: (code: string) =>
     request<InvitationInfoResponse>(`/api/invitations/${code}`),
@@ -578,4 +600,112 @@ export const leaveApi = {
     request<LeaveRequestData>(`/api/leave-requests/${id}/approve`, { method: 'POST', body: JSON.stringify({ actorAddress }) }),
   reject: (id: string, actorAddress: string) =>
     request<LeaveRequestData>(`/api/leave-requests/${id}/reject`, { method: 'POST', body: JSON.stringify({ actorAddress }) }),
+}
+
+// ── Payment / Payslip types ──
+
+export interface PaymentData {
+  id: string
+  payrollRunId: string
+  employeeAddress: string
+  grossAmount: string
+  taxWithheld: string
+  netAmount: string
+  countryCode: string | null
+  tdsAmount: string | null
+  socialSecurity: string | null
+  surcharge: string | null
+  effectiveRate: string | null
+  txHash: string | null
+  status: string
+  createdAt: string
+}
+
+export interface PayslipData {
+  paymentId: string
+  payrollRunId: string
+  payrollRunName: string
+  runDate: string
+  company: { name: string; appId: string; network: string }
+  employee: { name: string; walletAddress: string; country: string | null; dbId: string | null }
+  grossAmount: string
+  taxWithheld: string
+  netAmount: string
+  breakdown: { tds: string; socialSecurity: string; surcharge: string; effectiveRate: string }
+  txHash: string | null
+  status: string
+}
+
+export interface TaxBreakdownResponse {
+  grossAmount: number
+  tds: number
+  socialSecurity: number
+  surcharge: number
+  totalTax: number
+  netAmount: number
+  effectiveRate: number
+}
+
+export interface CountryInfo {
+  code: string
+  name: string
+}
+
+export interface BankFieldDef {
+  key: string
+  label: string
+  required: boolean
+  placeholder?: string
+}
+
+export interface CountryConfig {
+  code: string
+  name: string
+  currency: string
+  requiredKycDocs: string[]
+  bankFields: BankFieldDef[]
+}
+
+// ── Payment API ──
+
+export const paymentApi = {
+  create: (runId: string, data: { employeeAddress: string; grossAmount: number; countryCode?: string; txHash?: string }) =>
+    request<PaymentData>(`/api/payroll-runs/${runId}/payments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  update: (runId: string, paymentId: string, data: { txHash?: string; status?: string }) =>
+    request<PaymentData>(`/api/payroll-runs/${runId}/payments/${paymentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+
+  listByRun: (runId: string) =>
+    request<PaymentData[]>(`/api/payroll-runs/${runId}/payments`),
+
+  payslipsByRun: (runId: string) =>
+    request<PayslipData[]>(`/api/payroll-runs/${runId}/payslips`),
+
+  employeePayslips: (address: string, appId: string) =>
+    request<PayslipData[]>(`/api/payroll-runs/employee/${address}/payslips?appId=${encodeURIComponent(appId)}`),
+}
+
+// ── Tax API ──
+
+export const taxApi = {
+  calculate: (data: { amountUsd: number; countryCode?: string; annualIncome?: number; employmentType?: string }) =>
+    request<TaxBreakdownResponse>('/api/tax/calculate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+}
+
+// ── Country API ──
+
+export const countryApi = {
+  list: () => request<CountryInfo[]>('/api/countries'),
+  get: (code: string) => request<CountryConfig>(`/api/countries/${code}`),
+  bankFields: (code: string) => request<BankFieldDef[]>(`/api/countries/${code}/bank-fields`),
+  kycDocs: (code: string) => request<string[]>(`/api/countries/${code}/kyc-docs`),
 }

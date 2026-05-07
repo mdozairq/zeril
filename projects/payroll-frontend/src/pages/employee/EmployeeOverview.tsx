@@ -3,8 +3,9 @@ import { useEmployee } from '../../contexts/EmployeeContext'
 import { ellipseAddress } from '../../utils/ellipseAddress'
 import { formatUsdcDisplay, microUnitsToUsdc } from '../../utils/formatUsdc'
 import { useSnackbar } from 'notistack'
-import { useState } from 'react'
-import { employeeApi } from '../../services/api'
+import { useState, useEffect, useMemo } from 'react'
+import { employeeApi, type EmployeeMetaData } from '../../services/api'
+import BankDetailsForm from '../../components/Employee/BankDetailsForm'
 import EmployeeOnboardingChecklist from '../../components/Employee/EmployeeOnboardingChecklist'
 import { AlgorandClient } from '@algorandfoundation/algokit-utils'
 import { EmployerClient } from '../../contracts/Employer'
@@ -22,6 +23,27 @@ export default function EmployeeOverview() {
   const [receiver, setReceiver] = useState('')
   const [savingPref, setSavingPref] = useState(false)
   const [payoutMethod, setPayoutMethod] = useState<'crypto' | 'bank'>('crypto')
+  const [empMeta, setEmpMeta] = useState<EmployeeMetaData | null>(null)
+
+  const appIdStrLocal = useMemo(() => appId?.toString() ?? '', [appId])
+
+  useEffect(() => {
+    if (!activeAddress || !appIdStrLocal) return
+    employeeApi.list(appIdStrLocal).then(list => {
+      const me = list.find(e => e.walletAddress === activeAddress)
+      if (me) {
+        setEmpMeta(me)
+        if (me.payoutMethod === 'bank' || me.payoutMethod === 'crypto') {
+          setPayoutMethod(me.payoutMethod)
+        }
+      }
+    }).catch(() => {})
+  }, [activeAddress, appIdStrLocal])
+
+  const savedBankDetails = useMemo<Record<string, string>>(() => {
+    if (!empMeta?.bankDetailsJson) return {}
+    try { return JSON.parse(empMeta.bankDetailsJson) } catch { return {} }
+  }, [empMeta?.bankDetailsJson])
 
   const setOnChainReceiver = async (addr: string) => {
     if (!activeAddress || !appId) throw new Error('Not connected')
@@ -245,28 +267,28 @@ export default function EmployeeOverview() {
           ) : (
             <>
               <div className="text-xs opacity-50 mb-3">
-                Payments will be bridged off-chain via Wormhole + Saber to your bank account. Set up from the Off-ramp page.
+                Payments will be bridged off-chain via Wormhole + Saber to your bank account.
               </div>
-              <button
-                className="btn btn-primary btn-sm"
-                disabled={savingPref || !activeAddress}
-                onClick={async () => {
+              <BankDetailsForm
+                countryCode={empMeta?.country ?? null}
+                initialValues={savedBankDetails}
+                disabled={savingPref}
+                onSave={async (bankDetails) => {
                   if (!activeAddress) return
                   setSavingPref(true)
                   try {
                     await employeeApi.setPayoutPreference(appId.toString(), activeAddress, {
                       payoutMethod: 'bank',
+                      bankDetailsJson: JSON.stringify(bankDetails),
                     })
-                    enqueueSnackbar('Payout preference saved: Bank transfer', { variant: 'success' })
+                    enqueueSnackbar('Bank details saved', { variant: 'success' })
                   } catch (e) {
                     enqueueSnackbar(e instanceof Error ? e.message : 'Failed to save', { variant: 'error' })
                   } finally {
                     setSavingPref(false)
                   }
                 }}
-              >
-                {savingPref ? <span className="loading loading-spinner loading-xs" /> : 'Save Bank Preference'}
-              </button>
+              />
             </>
           )}
         </div>

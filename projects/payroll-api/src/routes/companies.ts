@@ -39,7 +39,7 @@ router.get('/:appId/employees', async (req, res) => {
 })
 
 router.post('/:appId/employees', async (req, res) => {
-  const { walletAddress, name, network, settlementType, country, bankDetails } = req.body
+  const { walletAddress, name, network, settlementType, country, bankDetails, email, phone } = req.body
   if (!walletAddress) {
     res.status(400).json({ error: 'walletAddress is required' })
     return
@@ -58,7 +58,11 @@ router.post('/:appId/employees', async (req, res) => {
         walletAddress,
       },
     },
-    update: { name, network, settlementType, country, bankDetails },
+    update: {
+      name, network, settlementType, country, bankDetails,
+      ...(email !== undefined && { email }),
+      ...(phone !== undefined && { phone }),
+    },
     create: {
       companyAppId: req.params.appId,
       walletAddress,
@@ -67,6 +71,8 @@ router.post('/:appId/employees', async (req, res) => {
       settlementType: settlementType || 'crypto',
       country,
       bankDetails,
+      email: email || null,
+      phone: phone || null,
     },
   })
   res.json(employee)

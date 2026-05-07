@@ -1,6 +1,11 @@
 import { Router } from 'express'
+import multer from 'multer'
+import crypto from 'crypto'
 import { prisma } from '../db.js'
 import { requireAuth, requireCompanyAdmin, requireSelfAddress } from '../middleware/auth.js'
+import { uploadToPinata } from '../lib/pinata.js'
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
 
 type KycDocInput = {
   docType: string
@@ -9,6 +14,8 @@ type KycDocInput = {
   issuedAt?: string
   expiresAt?: string
   reference?: string
+  pinataCid?: string
+  fileUrl?: string
 }
 
 const router = Router({ mergeParams: true })
@@ -25,6 +32,23 @@ async function getEmployeeOr404(appId: string, address: string) {
     where: { companyAppId_walletAddress: { companyAppId: appId, walletAddress: address } },
   })
 }
+
+router.post('/kyc/upload', upload.single('file'), async (req, res) => {
+  const file = req.file
+  if (!file) {
+    res.status(400).json({ error: 'No file uploaded' })
+    return
+  }
+
+  try {
+    const sha256 = crypto.createHash('sha256').update(file.buffer).digest('hex')
+    const result = await uploadToPinata(file.buffer, file.originalname)
+    res.json({ sha256, cid: result.cid, url: result.url, fileName: file.originalname })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Upload failed'
+    res.status(500).json({ error: msg })
+  }
+})
 
 router.get('/companies/:appId/employees/:address/kyc', async (req, res) => {
   const appId = String(req.params.appId)
@@ -93,6 +117,8 @@ router.post('/companies/:appId/employees/:address/kyc', async (req, res) => {
           issuedAt: d.issuedAt ? new Date(d.issuedAt) : null,
           expiresAt: d.expiresAt ? new Date(d.expiresAt) : null,
           reference: d.reference ?? null,
+          pinataCid: d.pinataCid ?? null,
+          fileUrl: d.fileUrl ?? null,
         })),
       })
     }

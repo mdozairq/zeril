@@ -1,9 +1,9 @@
 import { usePayroll } from '../contexts/PayrollContext'
 import { microUnitsToUsdc } from '../utils/formatUsdc'
 import { ellipseAddress } from '../utils/ellipseAddress'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { useWallet } from '@txnlab/use-wallet-react'
-import { payrollRunApi, custodyApi, companyApi, type PayrollRunData, type CustodySummary } from '../services/api'
+import { payrollRunApi, custodyApi, companyApi, employeeApi, type PayrollRunData, type CustodySummary, type EmployeeMetaData } from '../services/api'
 
 type View = 'list' | 'detail'
 
@@ -27,9 +27,34 @@ const RunPayroll = () => {
   const [creating, setCreating] = useState(false)
 
   const [custody, setCustody] = useState<CustodySummary | null>(null)
+  const [backendMeta, setBackendMeta] = useState<EmployeeMetaData[]>([])
+  const [selectedEmployees, setSelectedEmployees] = useState<Set<string>>(new Set())
+
+  const backendMap = useMemo(() => new Map(backendMeta.map(m => [m.walletAddress, m])), [backendMeta])
 
   const notOptedIn = activeEmployees.filter(e => !e.optedIntoUsdc)
-  const hasSufficientFunds = usdcBalance >= totalPayroll
+
+  const isEligible = useCallback((addr: string) => {
+    const emp = activeEmployees.find(e => e.address === addr)
+    if (!emp || !emp.optedIntoUsdc) return false
+    const dbMeta = backendMap.get(addr)
+    return dbMeta?.kycStatus === 'approved'
+  }, [activeEmployees, backendMap])
+
+  const kycPendingCount = useMemo(() => {
+    return activeEmployees.filter(e => {
+      const dbMeta = backendMap.get(e.address)
+      return e.optedIntoUsdc && dbMeta?.kycStatus !== 'approved'
+    }).length
+  }, [activeEmployees, backendMap])
+
+  const selectedTotal = useMemo(() => {
+    return activeEmployees
+      .filter(e => selectedEmployees.has(e.address))
+      .reduce((sum, e) => sum + e.salary, 0n)
+  }, [activeEmployees, selectedEmployees])
+
+  const hasSufficientFunds = usdcBalance >= selectedTotal
   const accruedYield = custody ? BigInt(custody.accruedYield) : 0n
   const effectiveUsdc = usdcBalance + accruedYield
 
@@ -46,14 +71,25 @@ const RunPayroll = () => {
     }
   }, [appIdStr])
 
-  useEffect(() => {
-    loadRuns()
-  }, [loadRuns])
+  useEffect(() => { loadRuns() }, [loadRuns])
 
   useEffect(() => {
     if (!appIdStr) return
     custodyApi.get(appIdStr).then(setCustody).catch(() => setCustody(null))
   }, [appIdStr])
+
+  useEffect(() => {
+    if (!appIdStr) return
+    employeeApi.list(appIdStr).then(setBackendMeta).catch(() => setBackendMeta([]))
+  }, [appIdStr])
+
+  // Auto-select all eligible employees when entering detail view
+  useEffect(() => {
+    if (view === 'detail') {
+      const eligible = new Set(activeEmployees.filter(e => isEligible(e.address)).map(e => e.address))
+      setSelectedEmployees(eligible)
+    }
+  }, [view, activeEmployees, isEligible])
 
   const adminEnsuredRef = useRef(false)
   const ensureCompanyAdmin = useCallback(async () => {
@@ -89,8 +125,8 @@ const RunPayroll = () => {
   }
 
   const handleProcessPayments = async () => {
-    if (!selectedRun) return
-    await executePayroll(selectedRun.id)
+    if (!selectedRun || selectedEmployees.size === 0) return
+    await executePayroll(selectedRun.id, Array.from(selectedEmployees))
     const updated = await payrollRunApi.get(selectedRun.id).catch(() => null)
     if (updated) {
       setSelectedRun(updated)
@@ -101,6 +137,25 @@ const RunPayroll = () => {
   const openRun = (run: PayrollRunData) => {
     setSelectedRun(run)
     setView('detail')
+  }
+
+  const toggleEmployee = (addr: string) => {
+    setSelectedEmployees(prev => {
+      const next = new Set(prev)
+      if (next.has(addr)) next.delete(addr)
+      else next.add(addr)
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    const eligible = activeEmployees.filter(e => isEligible(e.address)).map(e => e.address)
+    const allSelected = eligible.every(a => selectedEmployees.has(a))
+    if (allSelected) {
+      setSelectedEmployees(new Set())
+    } else {
+      setSelectedEmployees(new Set(eligible))
+    }
   }
 
   const statusBadge = (status: string) => {
@@ -118,13 +173,27 @@ const RunPayroll = () => {
     )
   }
 
+  const kycBadge = (status: string) => {
+    const styles: Record<string, string> = {
+      approved: 'badge-success',
+      submitted: 'badge-info',
+      rejected: 'badge-error',
+      pending: 'badge-warning',
+      draft: 'badge-warning',
+    }
+    return (
+      <span className={`badge badge-xs ${styles[status] || 'badge-ghost'}`}>
+        {status}
+      </span>
+    )
+  }
+
   // ── LIST VIEW ──
   if (view === 'list') {
     return (
       <div className="space-y-6">
         <h2 className="text-2xl font-bold">Payroll</h2>
 
-        {/* Create new payroll */}
         <div className="rounded-xl p-5" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
           <div className="text-sm font-semibold mb-3">Create Payroll Run</div>
           <div className="flex gap-2">
@@ -147,7 +216,6 @@ const RunPayroll = () => {
           </div>
         </div>
 
-        {/* Payroll runs list */}
         <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
           <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(250,250,247,0.06)' }}>
             <div className="text-sm font-semibold">Payroll Runs</div>
@@ -181,7 +249,7 @@ const RunPayroll = () => {
                   </div>
                   <div className="flex items-center gap-3">
                     {statusBadge(run.status)}
-                    <span className="text-xs opacity-30">→</span>
+                    <span className="text-xs opacity-30">&rarr;</span>
                   </div>
                 </button>
               ))}
@@ -193,14 +261,14 @@ const RunPayroll = () => {
   }
 
   // ── DETAIL VIEW ──
-  const canProcess = selectedRun?.status === 'pending' && payableEmployees.length > 0 && hasSufficientFunds && !payrollRunning
+  const canProcess = selectedRun?.status === 'pending' && selectedEmployees.size > 0 && hasSufficientFunds && !payrollRunning
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
         <button onClick={() => { setView('list'); setSelectedRun(null) }} className="text-xs opacity-40 hover:opacity-70 transition-opacity">
-          ← Back
+          &larr; Back
         </button>
         <div className="flex-1">
           <h2 className="text-2xl font-bold">{selectedRun?.name || 'Payroll Run'}</h2>
@@ -220,15 +288,15 @@ const RunPayroll = () => {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div>
             <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>USDC Balance</div>
-            <div className={`text-lg font-bold font-mono ${!hasSufficientFunds && payableEmployees.length > 0 ? 'text-error' : ''}`}>${microUnitsToUsdc(usdcBalance)}</div>
+            <div className={`text-lg font-bold font-mono ${!hasSufficientFunds && selectedEmployees.size > 0 ? 'text-error' : ''}`}>${microUnitsToUsdc(usdcBalance)}</div>
           </div>
           <div>
             <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>ALGO Balance</div>
             <div className="text-lg font-bold font-mono">{(Number(algoBalance) / 1_000_000).toFixed(4)}</div>
           </div>
           <div>
-            <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>Total Payroll</div>
-            <div className="text-lg font-bold font-mono">${microUnitsToUsdc(totalPayroll)}</div>
+            <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>Selected Total</div>
+            <div className="text-lg font-bold font-mono">${microUnitsToUsdc(selectedTotal)}</div>
           </div>
           <div>
             <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>ALGO/USDC</div>
@@ -242,41 +310,78 @@ const RunPayroll = () => {
         )}
         {algoPrice > 0 && (
           <div className="mt-3 pt-3 text-[10px] font-mono" style={{ borderTop: '1px solid rgba(250,250,247,0.06)', color: 'rgba(250,250,247,0.3)' }}>
-            Tinyman {network} · 1 ALGO = ${algoPrice.toFixed(4)} USDC
+            Tinyman {network} &middot; 1 ALGO = ${algoPrice.toFixed(4)} USDC
           </div>
         )}
       </div>
 
-      {/* Allocation Breakdown Table */}
+      {/* Payment Breakdown Table with checkboxes */}
       {activeEmployees.length > 0 && (
         <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.06)' }}>
-          <div className="px-5 py-4" style={{ borderBottom: '1px solid rgba(250,250,247,0.06)' }}>
-            <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>Employees</div>
-            <div className="text-sm font-semibold">Payment Breakdown</div>
+          <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(250,250,247,0.06)' }}>
+            <div>
+              <div className="text-[10px] font-mono tracking-wider uppercase mb-1" style={{ color: 'rgba(250,250,247,0.35)' }}>Employees</div>
+              <div className="text-sm font-semibold">
+                Payment Breakdown
+                <span className="font-normal text-xs ml-2" style={{ color: 'rgba(250,250,247,0.4)' }}>
+                  ({selectedEmployees.size} selected)
+                </span>
+              </div>
+            </div>
+            {selectedRun?.status === 'pending' && (
+              <button onClick={toggleAll} className="btn btn-ghost btn-xs">
+                {activeEmployees.filter(e => isEligible(e.address)).every(a => selectedEmployees.has(a.address)) ? 'Deselect All' : 'Select All'}
+              </button>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="table table-sm">
               <thead>
                 <tr>
+                  {selectedRun?.status === 'pending' && <th className="w-8"></th>}
                   <th>Employee</th>
                   <th>Salary</th>
                   <th>USDC Portion</th>
                   <th>ALGO Portion</th>
                   {algoPrice > 0 && <th>ALGO Amount</th>}
+                  <th>KYC</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {activeEmployees.map(emp => {
                   const meta = employeeMeta[emp.address]
+                  const dbMeta = backendMap.get(emp.address)
+                  const kycStatus = dbMeta?.kycStatus || 'pending'
+                  const eligible = isEligible(emp.address)
                   const usdcPct = emp.usdcPercentage
                   const algoPct = 100 - usdcPct
                   const usdcAmount = Number(emp.salary) * usdcPct / 100
                   const algoUsdcAmount = Number(emp.salary) * algoPct / 100
                   const algoTokens = algoPrice > 0 ? (algoUsdcAmount / 1_000_000) / algoPrice : 0
 
+                  let statusLabel: React.ReactNode
+                  if (!emp.optedIntoUsdc) {
+                    statusLabel = <span className="badge badge-sm badge-warning">No USDC opt-in</span>
+                  } else if (kycStatus !== 'approved') {
+                    statusLabel = <span className="badge badge-sm badge-warning">KYC {kycStatus}</span>
+                  } else {
+                    statusLabel = <span className="badge badge-sm badge-success">Ready</span>
+                  }
+
                   return (
-                    <tr key={emp.address}>
+                    <tr key={emp.address} className={!eligible ? 'opacity-50' : ''}>
+                      {selectedRun?.status === 'pending' && (
+                        <td>
+                          <input
+                            type="checkbox"
+                            className="checkbox checkbox-xs"
+                            checked={selectedEmployees.has(emp.address)}
+                            disabled={!eligible}
+                            onChange={() => toggleEmployee(emp.address)}
+                          />
+                        </td>
+                      )}
                       <td>
                         <div className="text-xs font-medium">{meta?.name || 'Unnamed'}</div>
                         <div className="font-mono text-[10px] opacity-40">{ellipseAddress(emp.address, 6)}</div>
@@ -287,13 +392,8 @@ const RunPayroll = () => {
                       {algoPrice > 0 && (
                         <td className="font-mono text-xs">{algoTokens > 0 ? `~${algoTokens.toFixed(2)} ALGO` : '—'}</td>
                       )}
-                      <td>
-                        {emp.optedIntoUsdc ? (
-                          <span className="badge badge-sm badge-success">Ready</span>
-                        ) : (
-                          <span className="badge badge-sm badge-warning">No USDC opt-in</span>
-                        )}
-                      </td>
+                      <td>{kycBadge(kycStatus)}</td>
+                      <td>{statusLabel}</td>
                     </tr>
                   )
                 })}
@@ -304,13 +404,19 @@ const RunPayroll = () => {
       )}
 
       {/* Warnings */}
+      {kycPendingCount > 0 && (
+        <div className="p-4 rounded-xl text-xs" style={{ backgroundColor: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.15)', color: '#FBBF24' }}>
+          <span className="font-bold">{kycPendingCount} employee(s)</span> excluded due to pending KYC approval.
+        </div>
+      )}
+
       {notOptedIn.length > 0 && (
         <div className="p-4 rounded-xl text-xs" style={{ backgroundColor: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.15)', color: '#FBBF24' }}>
           <span className="font-bold">{notOptedIn.length} employee(s)</span> have not opted into USDC and will be skipped.
         </div>
       )}
 
-      {!hasSufficientFunds && payableEmployees.length > 0 && (
+      {!hasSufficientFunds && selectedEmployees.size > 0 && (
         <div className="p-4 rounded-xl text-xs" style={{ backgroundColor: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.15)', color: '#F87171' }}>
           Insufficient USDC balance to cover payroll. Fund the contract before running.
         </div>
@@ -343,7 +449,7 @@ const RunPayroll = () => {
           <div>
             <div className="text-sm font-semibold">Process Payments</div>
             <div className="text-xs mt-1" style={{ color: 'rgba(250,250,247,0.4)' }}>
-              {payableEmployees.length} employee(s) · ${microUnitsToUsdc(totalPayroll)} total
+              {selectedEmployees.size} employee(s) selected &middot; ${microUnitsToUsdc(selectedTotal)} total
               {algoPrice > 0 && ' · Tinyman rate applied'}
             </div>
           </div>
@@ -384,7 +490,7 @@ const RunPayroll = () => {
                     <div className={`text-xs ${step.status === 'error' ? 'text-error' : step.status === 'done' ? '' : 'opacity-50'}`}>{step.label}</div>
                     {step.error && <div className="text-[10px] mt-0.5 text-error opacity-70">{step.error}</div>}
                     {step.status === 'done' && step.empAddress && (
-                      <a href={`${explorerBase}/address/${step.empAddress}`} target="_blank" rel="noopener noreferrer" className="font-mono text-[10px] opacity-30 hover:opacity-60">{ellipseAddress(step.empAddress, 8)} ↗</a>
+                      <a href={`${explorerBase}/address/${step.empAddress}`} target="_blank" rel="noopener noreferrer" className="font-mono text-[10px] opacity-30 hover:opacity-60">{ellipseAddress(step.empAddress, 8)} &#8599;</a>
                     )}
                   </div>
                 </div>

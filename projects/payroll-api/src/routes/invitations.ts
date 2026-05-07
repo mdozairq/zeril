@@ -31,6 +31,7 @@ router.post('/companies/:appId/invitations', requireAuth('employer'), requireCom
     data: {
       companyAppId: appId,
       email: safeEmail,
+      code: inviteCode,
       codeHash,
       expiresAt,
     },
@@ -54,6 +55,24 @@ router.post('/companies/:appId/invitations', requireAuth('employer'), requireCom
 
   // Return invite code only once.
   res.status(201).json({ id: invite.id, email: safeEmail, expiresAt: invite.expiresAt, inviteCode })
+})
+
+router.get('/companies/:appId/invitations', async (req, res) => {
+  const appId = String(req.params.appId)
+  const invitations = await prisma.invitation.findMany({
+    where: { companyAppId: appId },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+  })
+  res.json(invitations.map(inv => ({
+    id: inv.id,
+    email: inv.email,
+    code: inv.code,
+    expiresAt: inv.expiresAt,
+    acceptedAt: inv.acceptedAt,
+    employeeWalletAddress: inv.employeeWalletAddress,
+    createdAt: inv.createdAt,
+  })))
 })
 
 router.get('/invitations/:code', async (req, res) => {

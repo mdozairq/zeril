@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { prisma } from '../db.js'
 import { sha256Hex } from '../utils/crypto.js'
-import { runOfframpOrchestrator } from '../offramp/orchestrator.js'
+import { runOfframpOrchestrator, getEmployeeBankDetails } from '../offramp/orchestrator.js'
 
 const router = Router()
 
@@ -64,6 +64,56 @@ router.get('/offramp/:id', async (req, res) => {
     return
   }
   res.json(row)
+})
+
+router.post('/offramp/process', async (req, res) => {
+  const { paymentId, employeeAddress, companyAppId } = req.body as {
+    paymentId?: string
+    employeeAddress?: string
+    companyAppId?: string
+  }
+
+  if (!employeeAddress || !companyAppId) {
+    res.status(400).json({ error: 'employeeAddress and companyAppId required' })
+    return
+  }
+
+  const bankDetails = await getEmployeeBankDetails(companyAppId, employeeAddress)
+
+  if (!bankDetails) {
+    res.status(400).json({ error: 'No bank details found for this employee. Ask them to set up bank details first.' })
+    return
+  }
+
+  const payment = paymentId
+    ? await prisma.payment.findUnique({ where: { id: paymentId } })
+    : null
+
+  const amountMicro = payment ? payment.netAmount : '0'
+
+  const idempotencyKey = sha256Hex(`offramp:${companyAppId}:${employeeAddress}:${paymentId || Date.now()}`)
+
+  const existing = await prisma.offrampRequest.findUnique({ where: { idempotencyKey } })
+  if (existing) {
+    res.json(existing)
+    return
+  }
+
+  const created = await prisma.offrampRequest.create({
+    data: {
+      companyAppId,
+      employeeWalletAddress: employeeAddress,
+      amountUsdcMicrounits: String(Math.round(parseFloat(amountMicro) * 1_000_000)),
+      idempotencyKey,
+      status: 'created',
+    },
+  })
+
+  setTimeout(() => {
+    runOfframpOrchestrator(created.id).catch(() => {})
+  }, 0)
+
+  res.status(201).json({ ...created, bankDetails })
 })
 
 router.post('/webhooks/offramp', async (req, res) => {

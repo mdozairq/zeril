@@ -16,6 +16,7 @@ import EmployeeKyc from './pages/employee/EmployeeKyc'
 import EmployeeOfframp from './pages/employee/EmployeeOfframp'
 import EmployeeLeave from './pages/employee/EmployeeLeave'
 import EmployeeKycReview from './pages/company/EmployeeKycReview'
+import EmployeeDetail from './pages/company/EmployeeDetail'
 import InviteAccept from './pages/InviteAccept'
 import OfframpCompany from './pages/OfframpCompany'
 import FinancialReports from './pages/FinancialReports'
@@ -81,6 +82,7 @@ export default function App() {
                 <Route index element={<Navigate to="dashboard" replace />} />
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="employees" element={<Employees />} />
+                <Route path="employees/:address" element={<EmployeeDetail />} />
                 <Route path="kyc/:address" element={<EmployeeKycReview />} />
                 <Route path="payroll" element={<RunPayroll />} />
                 <Route path="offramp" element={<OfframpCompany />} />

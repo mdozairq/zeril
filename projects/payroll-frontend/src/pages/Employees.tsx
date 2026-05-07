@@ -1,33 +1,42 @@
 import { useSnackbar } from 'notistack'
 import { usePayroll } from '../contexts/PayrollContext'
-import AddEmployeeForm from '../components/Employee/AddEmployeeForm'
+import AddEmployeeForm, { type AddEmployeeMeta } from '../components/Employee/AddEmployeeForm'
 import EmployeeList from '../components/Employee/EmployeeList'
-import { invitationApi, companyApi } from '../services/api'
-import { useWallet } from '@txnlab/use-wallet-react'
-import { useState } from 'react'
+import { employeeApi, type EmployeeMetaData } from '../services/api'
+import { useState, useEffect, useCallback } from 'react'
+import { Copy, Check } from 'lucide-react'
 
 const Employees = () => {
   const { enqueueSnackbar } = useSnackbar()
-  const { activeAddress } = useWallet()
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteCode, setInviteCode] = useState<string | null>(null)
+  const [lastInviteCode, setLastInviteCode] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [backendMeta, setBackendMeta] = useState<EmployeeMetaData[]>([])
   const {
     employees, employeesLoading, employeeMeta, activeEmployees,
     handleAddEmployee, handleRemoveEmployee, updateSalary,
     refreshEmployees, appIdStr, loading, isReady,
-    companyName, network,
   } = usePayroll()
 
-  const handleAdd = async (meta: {
-    name: string
-    address: string
-    salaryMicroUnits: bigint
-    network: string
-    settlementType: 'crypto' | 'bank'
-    bankDetails?: string
-  }) => {
+  const fetchBackendMeta = useCallback(async () => {
+    if (!appIdStr) return
     try {
-      await handleAddEmployee(meta)
+      const list = await employeeApi.list(appIdStr)
+      setBackendMeta(list)
+    } catch {
+      setBackendMeta([])
+    }
+  }, [appIdStr])
+
+  useEffect(() => { fetchBackendMeta() }, [fetchBackendMeta])
+
+  const handleAdd = async (meta: AddEmployeeMeta) => {
+    try {
+      const inviteCode = await handleAddEmployee(meta)
+      if (inviteCode) {
+        setLastInviteCode(inviteCode)
+        setCopied(false)
+      }
+      fetchBackendMeta()
     } catch {
       // Error already shown by context
     }
@@ -36,70 +45,62 @@ const Employees = () => {
   const handleRemove = async (address: string) => {
     try {
       await handleRemoveEmployee(address)
+      fetchBackendMeta()
     } catch {
       // Error already shown by context
     }
+  }
+
+  const handleSalaryUpdate = async (address: string, newSalary: bigint) => {
+    try {
+      await updateSalary(address, newSalary)
+      enqueueSnackbar('Salary updated on-chain', { variant: 'success' })
+      refreshEmployees()
+    } catch (e) {
+      enqueueSnackbar(`Failed: ${e instanceof Error ? e.message : 'Unknown'}`, { variant: 'error' })
+    }
+  }
+
+  const copyInviteCode = () => {
+    if (!lastInviteCode) return
+    const link = `${window.location.origin}/invite/${lastInviteCode}`
+    navigator.clipboard.writeText(link).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
   }
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold">Employees</h2>
-        <button className="btn btn-ghost btn-sm" onClick={refreshEmployees} disabled={employeesLoading}>
+        <button className="btn btn-ghost btn-sm" onClick={() => { refreshEmployees(); fetchBackendMeta() }} disabled={employeesLoading}>
           {employeesLoading ? <span className="loading loading-spinner loading-xs" /> : 'Refresh'}
         </button>
-      </div>
-
-      <div className="rounded-xl p-6" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
-        <h3 className="text-sm font-semibold mb-2">Invite Employee</h3>
-        <p className="text-xs opacity-40 mb-4">Generate an invitation code (sandbox email is logged in API console).</p>
-        <div className="flex gap-2 items-center">
-          <input
-            className="input input-bordered input-sm flex-1"
-            placeholder="employee@email.com"
-            value={inviteEmail}
-            onChange={(e) => setInviteEmail(e.target.value)}
-          />
-          <button
-            className="btn btn-primary btn-sm"
-            disabled={loading || !appIdStr || !inviteEmail}
-            onClick={async () => {
-              try {
-                if (activeAddress) {
-                  await companyApi.upsert({
-                    appId: appIdStr,
-                    name: companyName || 'Company',
-                    network,
-                    treasuryAsset: 'USDC',
-                    adminAddress: activeAddress,
-                  })
-                }
-                const res = await invitationApi.create(appIdStr, { email: inviteEmail, actorAddress: activeAddress ?? undefined })
-                setInviteCode(res.inviteCode)
-                enqueueSnackbar('Invite created', { variant: 'success' })
-              } catch (e) {
-                enqueueSnackbar(e instanceof Error ? e.message : 'Failed to create invite', { variant: 'error' })
-              }
-            }}
-          >
-            Create invite
-          </button>
-        </div>
-        {inviteCode && (
-          <div className="mt-3">
-            <div className="text-xs opacity-40 mb-1">Invite code (share privately)</div>
-            <div className="font-mono text-xs p-3 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.35)', border: '1px solid rgba(250,250,247,0.06)' }}>
-              {inviteCode}
-            </div>
-            <div className="text-[10px] opacity-40 mt-2">Acceptance link: {`${window.location.origin}/invite/${inviteCode}`}</div>
-          </div>
-        )}
       </div>
 
       <div className="rounded-xl p-6" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
         <h3 className="text-sm font-semibold mb-4">Add New Employee</h3>
         <AddEmployeeForm onAdd={handleAdd} loading={loading} canSubmit={Boolean(appIdStr && isReady)} />
       </div>
+
+      {lastInviteCode && (
+        <div className="rounded-xl p-5" style={{ backgroundColor: 'rgba(74,222,128,0.04)', border: '1px solid rgba(74,222,128,0.15)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-semibold text-success">Invite Code Generated</div>
+            <button onClick={copyInviteCode} className="btn btn-ghost btn-xs gap-1">
+              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? 'Copied' : 'Copy Link'}
+            </button>
+          </div>
+          <div className="font-mono text-xs p-3 rounded" style={{ backgroundColor: 'rgba(0,0,0,0.35)', border: '1px solid rgba(250,250,247,0.06)' }}>
+            {lastInviteCode}
+          </div>
+          <div className="text-[10px] mt-2" style={{ color: 'rgba(250,250,247,0.4)' }}>
+            Share link: {window.location.origin}/invite/{lastInviteCode}
+          </div>
+        </div>
+      )}
 
       <div className="rounded-xl overflow-hidden" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
         <div className="px-6 py-4" style={{ borderBottom: '1px solid rgba(250,250,247,0.06)' }}>
@@ -109,9 +110,10 @@ const Employees = () => {
           <EmployeeList
             employees={employees}
             onRemove={handleRemove}
-            onUpdateSalary={updateSalary}
+            onUpdateSalary={handleSalaryUpdate}
             loading={loading}
             employeeMeta={employeeMeta}
+            backendMeta={backendMeta}
           />
         </div>
       </div>
