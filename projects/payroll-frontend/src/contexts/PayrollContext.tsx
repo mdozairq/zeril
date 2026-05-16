@@ -299,6 +299,9 @@ export function PayrollProvider({ children }: { children: ReactNode }) {
             ...(phone ? { phone } : {}),
           })
           .catch(() => {})
+        await employeeApi
+          .update(appIdStr, address, { employmentStatus: 'active', kycStatus: 'approved' })
+          .catch(() => {})
       }
 
       let inviteCode: string | undefined

@@ -4,7 +4,7 @@ import { useSnackbar } from 'notistack'
 import { useWallet } from '@txnlab/use-wallet-react'
 import { usePayroll } from '../../contexts/PayrollContext'
 import {
-  employeeApi, kycApi, invitationApi, companyApi, paymentApi,
+  employeeApi, kycApi, invitationApi, companyApi, paymentApi, kycDocumentViewUrl,
   type EmployeeMetaData, type KycCaseResponse, type InvitationListItem, type PayslipData,
 } from '../../services/api'
 import { ellipseAddress } from '../../utils/ellipseAddress'
@@ -19,7 +19,8 @@ export default function EmployeeDetail() {
   const empAddress = address ?? ''
   const {
     appIdStr, employeeMeta, employees, companyName, network,
-    updateSalary, refreshEmployees,
+    updateSalary, refreshEmployees, addEmployee: addEmployeeOnChain,
+    isInitialized, isBootstrapped,
   } = usePayroll()
 
   const [dbMeta, setDbMeta] = useState<EmployeeMetaData | null>(null)
@@ -35,6 +36,8 @@ export default function EmployeeDetail() {
   const [editingSalary, setEditingSalary] = useState(false)
   const [editSalaryVal, setEditSalaryVal] = useState('')
   const [salaryUpdating, setSalaryUpdating] = useState(false)
+  const [activateSalary, setActivateSalary] = useState('')
+  const [activatingOnChain, setActivatingOnChain] = useState(false)
 
   const onChainEmp = employees.find(e => e.address === empAddress)
   const localMeta = employeeMeta[empAddress]
@@ -77,6 +80,16 @@ export default function EmployeeDetail() {
   }, [appIdStr, empAddress])
 
   useEffect(() => { fetchAll() }, [fetchAll])
+
+  // Sync DB employment status when employee is already on the payroll contract
+  useEffect(() => {
+    if (!appIdStr || !empAddress || !onChainEmp?.isActive || !dbMeta) return
+    if (dbMeta.employmentStatus === 'active') return
+    employeeApi
+      .update(appIdStr, empAddress, { employmentStatus: 'active' })
+      .then(updated => setDbMeta(updated))
+      .catch(() => {})
+  }, [appIdStr, empAddress, onChainEmp?.isActive, dbMeta?.employmentStatus])
 
   const copyToClipboard = (text: string, field: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -149,6 +162,58 @@ export default function EmployeeDetail() {
     return m[status] || 'badge-ghost'
   }
 
+  const employmentBadgeClass = (status: string) => {
+    const m: Record<string, string> = {
+      active: 'badge-success',
+      kyc_approved: 'badge-info',
+      kyc_submitted: 'badge-warning',
+      pending_kyc: 'badge-warning',
+      rejected: 'badge-error',
+    }
+    return m[status] || 'badge-ghost'
+  }
+
+  const employmentLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      active: 'Active (on-chain)',
+      kyc_approved: 'KYC approved — add on-chain',
+      kyc_submitted: 'KYC submitted',
+      pending_kyc: 'Pending KYC',
+      rejected: 'Rejected',
+    }
+    return labels[status] || status
+  }
+
+  const handleActivateOnChain = async () => {
+    const val = parseFloat(activateSalary)
+    if (!Number.isFinite(val) || val <= 0) {
+      enqueueSnackbar('Enter a valid monthly salary (USDC)', { variant: 'error' })
+      return
+    }
+    if (!isInitialized || !isBootstrapped) {
+      enqueueSnackbar('Finish Initialize and Bootstrap in Settings first.', { variant: 'error' })
+      return
+    }
+    setActivatingOnChain(true)
+    try {
+      await ensureCompanyAdmin()
+      await addEmployeeOnChain(empAddress, usdcToMicroUnits(val))
+      if (appIdStr) {
+        const updated = await employeeApi.update(appIdStr, empAddress, {
+          employmentStatus: 'active',
+          kycStatus: 'approved',
+        })
+        setDbMeta(updated)
+      }
+      refreshEmployees()
+      enqueueSnackbar('Employee registered on payroll contract', { variant: 'success' })
+    } catch (e) {
+      enqueueSnackbar(e instanceof Error ? e.message : 'Failed to add on-chain', { variant: 'error' })
+    } finally {
+      setActivatingOnChain(false)
+    }
+  }
+
   const displayName = dbMeta?.name || localMeta?.name || 'Unnamed'
   const kyc = kycData?.kycCase
 
@@ -170,10 +235,15 @@ export default function EmployeeDetail() {
           <div className="flex items-center gap-2 mt-0.5">
             <span className="font-mono text-xs opacity-50">{ellipseAddress(empAddress, 8)}</span>
             <CopyBtn text={empAddress} field="addr" />
+            {dbMeta?.employmentStatus && (
+              <span className={`badge badge-xs ${employmentBadgeClass(dbMeta.employmentStatus)}`}>
+                {employmentLabel(dbMeta.employmentStatus)}
+              </span>
+            )}
             {onChainEmp && (
               <>
                 <span className={`badge badge-xs ${onChainEmp.isActive ? 'badge-success' : 'badge-error'}`}>
-                  {onChainEmp.isActive ? 'Active' : 'Inactive'}
+                  Contract {onChainEmp.isActive ? 'active' : 'inactive'}
                 </span>
                 <span className={`badge badge-xs ${onChainEmp.optedIntoUsdc ? 'badge-success' : 'badge-warning'}`}>
                   USDC {onChainEmp.optedIntoUsdc ? 'Yes' : 'No'}
@@ -236,6 +306,36 @@ export default function EmployeeDetail() {
           <InfoRow icon={<Clock className="w-4 h-4" />} label="Registered" value={dbMeta ? new Date(dbMeta.createdAt).toLocaleDateString() : '—'} />
         </div>
       </div>
+
+      {/* On-chain activation after KYC */}
+      {dbMeta?.kycStatus === 'approved' && !onChainEmp?.isActive && (
+        <div className="rounded-xl p-5" style={{ backgroundColor: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)' }}>
+          <div className="text-sm font-semibold mb-2">Register on payroll contract</div>
+          <p className="text-xs opacity-60 mb-3">
+            KYC is approved. Add this employee to the on-chain Employer contract so they can be paid in payroll runs.
+            This requires a wallet transaction from the employer admin.
+          </p>
+          <div className="flex gap-2 flex-wrap items-center">
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="input input-bordered input-sm w-36"
+              placeholder="Salary USDC/mo"
+              value={activateSalary}
+              onChange={e => setActivateSalary(e.target.value)}
+              disabled={activatingOnChain}
+            />
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleActivateOnChain}
+              disabled={activatingOnChain || !activateSalary.trim()}
+            >
+              {activatingOnChain ? <span className="loading loading-spinner loading-xs" /> : 'Add to contract'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Invitation Info */}
       <div className="rounded-xl p-5" style={{ backgroundColor: 'rgba(250,250,247,0.03)', border: '1px solid rgba(250,250,247,0.08)' }}>
@@ -390,13 +490,14 @@ export default function EmployeeDetail() {
                           <td className="text-xs font-medium">{doc.docType}</td>
                           <td className="font-mono text-[10px] max-w-[200px] truncate">{doc.sha256}</td>
                           <td>
-                            {doc.fileUrl ? (
-                              <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-xs gap-1">
+                            {doc.pinataCid ? (
+                              <a
+                                href={kycDocumentViewUrl(doc.pinataCid)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="btn btn-ghost btn-xs gap-1"
+                              >
                                 <ExternalLink className="w-3 h-3" /> View
-                              </a>
-                            ) : doc.pinataCid ? (
-                              <a href={`https://gateway.pinata.cloud/ipfs/${doc.pinataCid}`} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-xs gap-1">
-                                <ExternalLink className="w-3 h-3" /> IPFS
                               </a>
                             ) : (
                               <span className="text-xs opacity-40">—</span>

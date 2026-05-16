@@ -38,12 +38,22 @@ export async function runOfframpOrchestrator(requestId: string) {
       data: { bridgeRef: bridge.bridgeRef, status: 'offramp_pending' },
     })
 
+    const empMeta = await prisma.employeeMeta.findUnique({
+      where: {
+        companyAppId_walletAddress: {
+          companyAppId: req.companyAppId,
+          walletAddress: req.employeeWalletAddress,
+        },
+      },
+    })
+
     const off = await saberOfframpSandbox({
       companyAppId: req.companyAppId,
       employeeWalletAddress: req.employeeWalletAddress,
       amountUsdcMicrounits: req.amountUsdcMicrounits,
       bridgeRef: bridge.bridgeRef,
       idempotencyKey: req.idempotencyKey,
+      saberUserId: empMeta?.saberUserId ?? undefined,
     })
 
     const updated = await prisma.offrampRequest.update({

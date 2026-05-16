@@ -1,8 +1,23 @@
+import {
+  resolveApiToken,
+  resolveTokenForRequest,
+  requestWalletAuth,
+  inferAuthRoleFromApiPath,
+  isTokenExpired,
+  getTokenRole,
+  perRoleTokenKey,
+} from '../auth/walletAuth'
+
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
-function getApiToken() {
+/** Open KYC file via payroll-api proxy (Pinata gateway tokens stay server-side). */
+export function kycDocumentViewUrl(pinataCid: string): string {
+  return `${API_BASE}/api/kyc/ipfs/${encodeURIComponent(pinataCid)}`
+}
+
+function getApiToken(): string | null {
   try {
-    return localStorage.getItem('zeril_api_token')
+    return resolveApiToken()
   } catch {
     return null
   }
@@ -12,37 +27,27 @@ function clearExpiredTokens() {
   try {
     const token = localStorage.getItem('zeril_api_token')
     if (!token) return
-    const parts = token.split('.')
-    if (parts.length !== 3) return
-    const payload = JSON.parse(atob(parts[1]))
-    if (payload.exp && payload.exp * 1000 < Date.now()) {
+    if (isTokenExpired(token)) {
       localStorage.removeItem('zeril_api_token')
-      const sub = payload.sub ?? ''
-      const role = payload.role ?? ''
-      if (sub && role) {
-        localStorage.removeItem(`zeril_api_token_${sub}_${role}`)
+      const role = getTokenRole(token)
+      const parts = token.split('.')
+      if (parts.length === 3) {
+        const payload = JSON.parse(atob(parts[1]))
+        const sub = payload.sub ?? ''
+        if (sub && role) localStorage.removeItem(perRoleTokenKey(sub, role))
       }
     }
   } catch {
-    // malformed token — clear it
     localStorage.removeItem('zeril_api_token')
   }
 }
 
-let _authRefreshPromise: Promise<void> | null = null
-
-async function refreshAuth(): Promise<void> {
-  if (_authRefreshPromise) return _authRefreshPromise
-  _authRefreshPromise = (async () => {
-    try {
-      clearExpiredTokens()
-      // Wait briefly for AuthBootstrapper to pick up the cleared state and re-auth
-      await new Promise((r) => setTimeout(r, 2500))
-    } finally {
-      _authRefreshPromise = null
-    }
-  })()
-  return _authRefreshPromise
+async function refreshAuth(path: string, method: string): Promise<string | null> {
+  clearExpiredTokens()
+  localStorage.removeItem('zeril_api_token')
+  const role = inferAuthRoleFromApiPath(path, method)
+  if (role) return requestWalletAuth(role)
+  return resolveTokenForRequest(path, method)
 }
 
 function normalizeHeaders(h?: HeadersInit): Record<string, string> {
@@ -54,7 +59,8 @@ function normalizeHeaders(h?: HeadersInit): Record<string, string> {
 
 async function request<T>(path: string, options?: RequestInit, _retried = false): Promise<T> {
   clearExpiredTokens()
-  const token = getApiToken()
+  const method = (options?.method || 'GET').toUpperCase()
+  let token = await resolveTokenForRequest(path, method)
   const optHeaders = normalizeHeaders(options?.headers)
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -65,8 +71,21 @@ async function request<T>(path: string, options?: RequestInit, _retried = false)
     },
   })
   if (res.status === 401 && !_retried) {
-    await refreshAuth()
-    return request<T>(path, options, true)
+    const refreshed = await refreshAuth(path, method)
+    if (refreshed) {
+      return request<T>(path, options, true)
+    }
+    const role = inferAuthRoleFromApiPath(path, method)
+    if (role === 'employer') {
+      throw new Error('Employer wallet auth required. Stay on /company, connect the admin wallet, and approve the sign-in transaction.')
+    }
+    if (role === 'employee') {
+      throw new Error('Employee wallet auth required. Stay on /employee and approve the sign-in transaction.')
+    }
+  }
+  if (res.status === 403 && !_retried) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || 'Forbidden — wrong wallet or company admin not set in Settings.')
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
@@ -109,6 +128,7 @@ export interface EmployeeMetaData {
   settlementType: string
   country: string | null
   kycStatus: string
+  employmentStatus: string
   bankDetails: string | null
   bankDetailsJson: string | null
   payoutMethod: string | null
@@ -127,6 +147,8 @@ export interface EmployeeMetaInput {
   bankDetails?: string
   email?: string
   phone?: string
+  employmentStatus?: string
+  kycStatus?: string
 }
 
 // ── KYC types ──

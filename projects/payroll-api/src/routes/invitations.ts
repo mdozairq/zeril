@@ -59,20 +59,29 @@ router.post('/companies/:appId/invitations', requireAuth('employer'), requireCom
 
 router.get('/companies/:appId/invitations', async (req, res) => {
   const appId = String(req.params.appId)
-  const invitations = await prisma.invitation.findMany({
-    where: { companyAppId: appId },
-    orderBy: { createdAt: 'desc' },
-    take: 200,
-  })
-  res.json(invitations.map(inv => ({
-    id: inv.id,
-    email: inv.email,
-    code: inv.code,
-    expiresAt: inv.expiresAt,
-    acceptedAt: inv.acceptedAt,
-    employeeWalletAddress: inv.employeeWalletAddress,
-    createdAt: inv.createdAt,
-  })))
+  try {
+    const invitations = await prisma.invitation.findMany({
+      where: { companyAppId: appId },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    })
+    res.json(invitations.map(inv => ({
+      id: inv.id,
+      email: inv.email,
+      code: inv.code,
+      expiresAt: inv.expiresAt,
+      acceptedAt: inv.acceptedAt,
+      employeeWalletAddress: inv.employeeWalletAddress,
+      createdAt: inv.createdAt,
+    })))
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown error'
+    console.error('[invitations] list failed:', msg)
+    res.status(500).json({
+      error: msg,
+      hint: 'Run `npx prisma migrate dev` in projects/payroll-api if the schema changed.',
+    })
+  }
 })
 
 router.get('/invitations/:code', async (req, res) => {
@@ -152,6 +161,7 @@ router.post('/invitations/:code/accept', async (req, res) => {
       name: name || 'Unnamed',
       network: 'algorand',
       settlementType: 'crypto',
+      employmentStatus: 'pending_kyc',
     },
   })
 

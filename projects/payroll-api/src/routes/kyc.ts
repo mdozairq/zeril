@@ -3,7 +3,7 @@ import multer from 'multer'
 import crypto from 'crypto'
 import { prisma } from '../db.js'
 import { requireAuth, requireCompanyAdmin, requireSelfAddress } from '../middleware/auth.js'
-import { uploadToPinata } from '../lib/pinata.js'
+import { uploadToPinata, buildPinataFetchUrl, buildPinataViewUrl, isPinataConfigured } from '../lib/pinata.js'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
 
@@ -27,11 +27,57 @@ function mapStatusToEmployeeKyc(status: string) {
   return 'pending'
 }
 
+function mapStatusToEmployment(status: string) {
+  if (status === 'approved') return 'kyc_approved'
+  if (status === 'rejected') return 'rejected'
+  if (status === 'submitted') return 'kyc_submitted'
+  return 'pending_kyc'
+}
+
 async function getEmployeeOr404(appId: string, address: string) {
   return prisma.employeeMeta.findUnique({
     where: { companyAppId_walletAddress: { companyAppId: appId, walletAddress: address } },
   })
 }
+
+/** Stream a pinned KYC file through the API (avoids Pinata gateway CORS / token issues in browser). */
+router.get('/kyc/ipfs/:cid', async (req, res) => {
+  const cid = String(req.params.cid || '').trim()
+  if (!cid || cid.length < 10) {
+    res.status(400).json({ error: 'Invalid cid' })
+    return
+  }
+  if (!isPinataConfigured()) {
+    res.status(404).json({ error: 'Document not on IPFS (Pinata not configured or dev mock upload)' })
+    return
+  }
+
+  try {
+    const gatewayUrl = buildPinataFetchUrl(cid)
+    const headers: Record<string, string> = {}
+    const jwt = process.env.PINATA_JWT
+    if (jwt) headers.Authorization = `Bearer ${jwt}`
+
+    const upstream = await fetch(gatewayUrl, { headers })
+    if (!upstream.ok) {
+      const body = await upstream.text().catch(() => '')
+      res.status(upstream.status).json({
+        error: `Pinata gateway error: ${upstream.status}`,
+        detail: body.slice(0, 500),
+      })
+      return
+    }
+
+    const contentType = upstream.headers.get('content-type')
+    if (contentType) res.setHeader('Content-Type', contentType)
+    res.setHeader('Cache-Control', 'private, max-age=3600')
+    const buf = Buffer.from(await upstream.arrayBuffer())
+    res.send(buf)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Failed to fetch document'
+    res.status(500).json({ error: msg })
+  }
+})
 
 router.post('/kyc/upload', upload.single('file'), async (req, res) => {
   const file = req.file
@@ -43,7 +89,15 @@ router.post('/kyc/upload', upload.single('file'), async (req, res) => {
   try {
     const sha256 = crypto.createHash('sha256').update(file.buffer).digest('hex')
     const result = await uploadToPinata(file.buffer, file.originalname)
-    res.json({ sha256, cid: result.cid, url: result.url, fileName: file.originalname })
+    const viewUrl = buildPinataViewUrl(result.cid)
+    const apiViewUrl = `/api/kyc/ipfs/${result.cid}`
+    res.json({
+      sha256,
+      cid: result.cid,
+      url: viewUrl || apiViewUrl,
+      apiViewUrl,
+      fileName: file.originalname,
+    })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Upload failed'
     res.status(500).json({ error: msg })
@@ -165,7 +219,10 @@ router.post('/companies/:appId/employees/:address/kyc/submit', requireAuth('empl
 
   await prisma.employeeMeta.update({
     where: { id: employee.id },
-    data: { kycStatus: mapStatusToEmployeeKyc(updated.status) },
+    data: {
+      kycStatus: mapStatusToEmployeeKyc(updated.status),
+      employmentStatus: mapStatusToEmployment(updated.status),
+    },
   })
 
   if (safeActor) {
@@ -217,7 +274,10 @@ router.post('/companies/:appId/employees/:address/kyc/approve', requireAuth('emp
 
   await prisma.employeeMeta.update({
     where: { id: employee.id },
-    data: { kycStatus: mapStatusToEmployeeKyc(updated.status) },
+    data: {
+      kycStatus: mapStatusToEmployeeKyc(updated.status),
+      employmentStatus: mapStatusToEmployment(updated.status),
+    },
   })
 
   if (safeActor) {
@@ -274,7 +334,10 @@ router.post('/companies/:appId/employees/:address/kyc/reject', requireAuth('empl
 
   await prisma.employeeMeta.update({
     where: { id: employee.id },
-    data: { kycStatus: mapStatusToEmployeeKyc(updated.status) },
+    data: {
+      kycStatus: mapStatusToEmployeeKyc(updated.status),
+      employmentStatus: mapStatusToEmployment(updated.status),
+    },
   })
 
   if (safeActor) {

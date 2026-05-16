@@ -1,22 +1,36 @@
 import { Router } from 'express'
 import algosdk from 'algosdk'
+import nacl from 'tweetnacl'
 import { createChallenge, consumeChallenge } from '../auth/challengeStore.js'
 import { signToken, type AuthRole } from '../auth/jwt.js'
+import { normalizeAddress, sameAddress } from '../auth/addresses.js'
 
 const router = Router()
 
+function transactionSenderAddress(txn: algosdk.Transaction): string {
+  const raw = txn.sender as unknown
+  if (typeof raw === 'string') return normalizeAddress(raw)
+  if (raw instanceof Uint8Array) return algosdk.encodeAddress(raw)
+  if (raw && typeof raw === 'object' && 'publicKey' in raw) {
+    const pk = (raw as { publicKey: Uint8Array }).publicKey
+    if (pk instanceof Uint8Array) return algosdk.encodeAddress(pk)
+  }
+  return normalizeAddress(String(raw))
+}
+
 router.get('/auth/challenge', async (req, res) => {
-  const address = String(req.query.address || '')
+  const addressRaw = String(req.query.address || '')
   const role = String(req.query.role || '') as AuthRole
-  if (!address || (role !== 'employer' && role !== 'employee')) {
+  if (!addressRaw || (role !== 'employer' && role !== 'employee')) {
     res.status(400).json({ error: 'address and role are required' })
     return
   }
-  if (!algosdk.isValidAddress(address)) {
+  if (!algosdk.isValidAddress(addressRaw)) {
     res.status(400).json({ error: 'Invalid address' })
     return
   }
 
+  const address = normalizeAddress(addressRaw)
   const c = createChallenge(address)
   res.json({
     address,
@@ -28,16 +42,22 @@ router.get('/auth/challenge', async (req, res) => {
 })
 
 router.post('/auth/verify', async (req, res) => {
-  const { address, role, nonce, signedTxnB64 } = req.body as {
+  const { address: addressRaw, role, nonce, signedTxnB64 } = req.body as {
     address?: string
     role?: AuthRole
     nonce?: string
     signedTxnB64?: string
   }
-  if (!address || !role || !nonce || !signedTxnB64) {
+  if (!addressRaw || !role || !nonce || !signedTxnB64) {
     res.status(400).json({ error: 'address, role, nonce, signedTxnB64 are required' })
     return
   }
+  if (!algosdk.isValidAddress(addressRaw)) {
+    res.status(400).json({ error: 'Invalid address' })
+    return
+  }
+
+  const address = normalizeAddress(addressRaw)
 
   const c = consumeChallenge(address, nonce)
   if (!c) {
@@ -45,32 +65,42 @@ router.post('/auth/verify', async (req, res) => {
     return
   }
 
-  const signedBytes = Buffer.from(signedTxnB64, 'base64')
-  const decoded = algosdk.decodeSignedTransaction(new Uint8Array(signedBytes))
+  let signedBytes: Uint8Array
+  try {
+    signedBytes = new Uint8Array(Buffer.from(signedTxnB64, 'base64'))
+  } catch {
+    res.status(400).json({ error: 'Invalid signedTxnB64' })
+    return
+  }
+
+  let decoded: algosdk.SignedTransaction
+  try {
+    decoded = algosdk.decodeSignedTransaction(signedBytes)
+  } catch {
+    res.status(401).json({ error: 'Invalid signed transaction' })
+    return
+  }
+
   const txn = decoded.txn
 
-  const senderBytes =
-    (txn as any).sender?.publicKey ??
-    (txn as any).sender ??
-    (txn as any).from?.publicKey ??
-    (txn as any).from
-  const sender = algosdk.encodeAddress(senderBytes)
-  if (sender !== address) {
+  const sender = transactionSenderAddress(txn)
+  if (!sameAddress(sender, address)) {
     res.status(401).json({ error: 'Signed transaction sender mismatch' })
     return
   }
 
-  const note = txn.note ? Buffer.from(txn.note).toString('utf8') : ''
+  const note = txn.note ? new TextDecoder().decode(txn.note) : ''
   const expected = `zeril-auth:${nonce}`
   if (note !== expected) {
     res.status(401).json({ error: 'Invalid auth note' })
     return
   }
 
-  const unsignedBytes = algosdk.encodeUnsignedTransaction(txn)
-  const pk = senderBytes
-  const sig = decoded.sig
-  if (!sig || !algosdk.verifyBytes(unsignedBytes, sig, pk)) {
+  const sig = decoded.sig != null ? new Uint8Array(decoded.sig) : null
+  const publicKey = algosdk.decodeAddress(address).publicKey
+  const toVerify = txn.bytesToSign()
+
+  if (!sig?.length || !nacl.sign.detached.verify(toVerify, sig, publicKey)) {
     res.status(401).json({ error: 'Invalid signature' })
     return
   }
@@ -80,4 +110,3 @@ router.post('/auth/verify', async (req, res) => {
 })
 
 export default router
-

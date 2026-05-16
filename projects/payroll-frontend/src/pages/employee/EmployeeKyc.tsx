@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState, useRef } from 'react'
 import { useSnackbar } from 'notistack'
 import { useWallet } from '@txnlab/use-wallet-react'
 import { useEmployee } from '../../contexts/EmployeeContext'
-import { kycApi, countryApi, type KycDocInput, type KycCaseResponse } from '../../services/api'
+import { kycApi, countryApi, kycDocumentViewUrl, type KycDocInput, type KycCaseResponse } from '../../services/api'
+import { resolveApiToken, waitForApiAuth } from '../../auth/walletAuth'
 import { Upload, FileText, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001'
@@ -71,7 +72,7 @@ export default function EmployeeKyc() {
           expiresAt: d.expiresAt ?? undefined,
           reference: d.reference ?? undefined,
           pinataCid: d.pinataCid ?? undefined,
-          fileUrl: d.fileUrl ?? undefined,
+          fileUrl: d.pinataCid ? kycDocumentViewUrl(d.pinataCid) : (d.fileUrl ?? undefined),
           fileName: d.pinataCid ? `${d.docType} (uploaded)` : undefined,
         })))
       } else if (requiredDocs.length > 0) {
@@ -105,7 +106,7 @@ export default function EmployeeKyc() {
       const formData = new FormData()
       formData.append('file', file)
 
-      const token = localStorage.getItem('zeril_api_token')
+      let token = resolveApiToken() ?? (await waitForApiAuth(12_000))
       const res = await fetch(`${API_BASE}/api/kyc/upload`, {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -117,13 +118,23 @@ export default function EmployeeKyc() {
         throw new Error(body.error || `Upload failed: ${res.status}`)
       }
 
-      const result = await res.json() as { sha256: string; cid: string; url: string; fileName: string }
+      const result = await res.json() as {
+        sha256: string
+        cid: string
+        url: string
+        apiViewUrl?: string
+        fileName: string
+      }
+
+      const viewUrl = result.apiViewUrl
+        ? `${API_BASE}${result.apiViewUrl}`
+        : kycDocumentViewUrl(result.cid)
 
       setDocs(prev => prev.map(d => d.id === docId ? {
         ...d,
         sha256: result.sha256,
         pinataCid: result.cid,
-        fileUrl: result.url,
+        fileUrl: viewUrl,
         fileName: result.fileName,
         uploading: false,
       } : d))
@@ -268,8 +279,8 @@ export default function EmployeeKyc() {
                       <div className="flex items-center gap-2 text-xs flex-1">
                         <CheckCircle className="w-4 h-4 text-success" />
                         <span className="truncate">{d.fileName || d.pinataCid}</span>
-                        {d.fileUrl && (
-                          <a href={d.fileUrl} target="_blank" rel="noreferrer" className="link link-primary text-xs">View</a>
+                        {d.pinataCid && (
+                          <a href={d.fileUrl || kycDocumentViewUrl(d.pinataCid)} target="_blank" rel="noreferrer" className="link link-primary text-xs">View</a>
                         )}
                       </div>
                     ) : d.uploading ? (

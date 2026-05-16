@@ -31,7 +31,9 @@ model EmployeeMeta {
   network        String   @default("algorand")
   settlementType String   @default("crypto")
   country        String?
-  kycStatus      String   @default("pending")
+  kycStatus        String   @default("pending")
+  employmentStatus String   @default("pending_kyc") // pending_kyc | kyc_submitted | kyc_approved | active | rejected
+  saberUserId      String?  // Saber Money user id after merchant registers employee
   bankDetails    String?
   bankDetailsJson String?
   payoutMethod   String?  // crypto | bank

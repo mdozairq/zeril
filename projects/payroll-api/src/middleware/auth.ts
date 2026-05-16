@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express'
 import { verifyToken, type AuthClaims, type AuthRole } from '../auth/jwt.js'
+import { sameAddress } from '../auth/addresses.js'
 import { prisma } from '../db.js'
 
 export type AuthedRequest = Request & { auth?: AuthClaims }
@@ -55,7 +56,7 @@ export async function requireCompanyAdmin(req: AuthedRequest, res: Response, nex
     res.status(403).json({ error: 'Company admin not configured' })
     return
   }
-  if (company.adminAddress !== req.auth.sub) {
+  if (!sameAddress(company.adminAddress, req.auth.sub)) {
     res.status(403).json({ error: 'Forbidden' })
     return
   }
@@ -69,7 +70,7 @@ export function requireSelfAddress(paramName: 'address' | 'walletAddress' = 'add
       return
     }
     const target = String((req.params as any)[paramName] || (req.body as any)[paramName] || '')
-    if (!target || target !== req.auth.sub) {
+    if (!target || !sameAddress(target, req.auth.sub)) {
       res.status(403).json({ error: 'Forbidden' })
       return
     }

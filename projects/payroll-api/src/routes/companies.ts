@@ -79,7 +79,7 @@ router.post('/:appId/employees', async (req, res) => {
 })
 
 router.put('/:appId/employees/:address', async (req, res) => {
-  const { name, network, settlementType, country, kycStatus, bankDetails } = req.body
+  const { name, network, settlementType, country, kycStatus, employmentStatus, bankDetails } = req.body
 
   try {
     const employee = await prisma.employeeMeta.update({
@@ -95,6 +95,7 @@ router.put('/:appId/employees/:address', async (req, res) => {
         ...(settlementType !== undefined && { settlementType }),
         ...(country !== undefined && { country }),
         ...(kycStatus !== undefined && { kycStatus }),
+        ...(employmentStatus !== undefined && { employmentStatus }),
         ...(bankDetails !== undefined && { bankDetails }),
       },
     })
